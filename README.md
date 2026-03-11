@@ -1,73 +1,99 @@
-# React + TypeScript + Vite
+# 🃏 Ligretto Scorekeeper
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A fast, local scorekeeper webapp for **Ligretto** — the frantic real-time card game. Track rounds, see live standings, and review stats across all your games.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
 
-## React Compiler
+- **Multi-game tracking** — start a new game, add rounds, finish it, start another
+- **Two input modes** — enter *cards played + cards in hand* (auto-calculates score) or type the score directly when you've got a big group
+- **Live scoreboard** — sorted by total, color-coded per round, with per-round tooltips showing raw counts
+- **Player statistics** — lifetime totals, averages, best and worst rounds across all games
+- **Persistent storage** — everything lives in a local SQLite file (`ligretto.db`)
+- **Delete & correct** — remove a bad round or an entire game without hassle
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Scoring formula
 
-## Expanding the ESLint configuration
+> **Score = Cards played to the middle − (Cards remaining in Ligretto stack × 2)**
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+---
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Tech stack
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 + TypeScript + Vite |
+| Styling | Tailwind CSS v4 |
+| Backend | Express 5 + tsx |
+| Database | SQLite via `better-sqlite3` |
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+---
+
+## Getting started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) v18+
+
+### Install & run
+
+```bash
+git clone https://github.com/your-username/ligretto-scorekeeper.git
+cd ligretto-scorekeeper
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Open **http://localhost:5173** in your browser.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+The backend API runs on port **3001** and is proxied automatically by Vite. The database file `ligretto.db` is created automatically in the project root on first run.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Available scripts
+
+| Command | Description |
+|---|---|
+| `npm run dev` | Run frontend + backend concurrently (development) |
+| `npm run build` | Build frontend for production |
+| `npm run preview` | Preview production build |
+| `npm run server` | Run backend only |
+
+---
+
+## Project structure
+
 ```
+ligretto-scorekeeper/
+├── server/
+│   ├── db.ts          # SQLite schema & connection
+│   └── index.ts       # Express API routes
+├── src/
+│   ├── components/
+│   │   ├── GameView.tsx    # Scoreboard + round entry
+│   │   ├── GamesPage.tsx   # Game list + new game
+│   │   ├── PlayersPage.tsx # Player management
+│   │   └── StatsPage.tsx   # Lifetime statistics
+│   ├── api.ts         # Typed fetch client
+│   ├── types.ts       # Shared TypeScript types
+│   └── App.tsx        # Root + navigation
+├── ligretto.db        # SQLite database (auto-created, git-ignored)
+└── vite.config.ts
+```
+
+---
+
+## Database schema
+
+```sql
+players      (id, name, created_at)
+games        (id, started_at, finished_at)
+game_players (game_id, player_id)
+rounds       (id, game_id, round_number, created_at)
+round_scores (id, round_id, player_id, cards_played, cards_in_hand, score)
+```
+
+---
+
+## License
+
+MIT

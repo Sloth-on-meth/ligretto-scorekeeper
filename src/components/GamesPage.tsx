@@ -3,6 +3,11 @@ import { api } from '../api';
 import type { Game, Player } from '../types';
 import GameView from './GameView';
 
+const card = { backgroundColor: '#0f2e20', border: '1px solid #1f5038', borderRadius: '12px' };
+const mutedText = { color: '#6b9e7e' };
+const redBtn = { backgroundColor: '#dc2626', color: '#f8f4ec' };
+const ghostBtn = { color: '#6b9e7e', backgroundColor: 'transparent' };
+
 export default function GamesPage() {
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -47,13 +52,17 @@ export default function GamesPage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Games</h2>
+      <h2 className="text-2xl font-black tracking-wide mb-6" style={{ color: '#f8f4ec' }}>
+        ♠ Games
+      </h2>
 
       {/* New game */}
-      <div className="bg-slate-800 rounded-xl p-4 mb-8">
-        <h3 className="font-semibold mb-3">New Game</h3>
+      <div style={card} className="p-5 mb-8">
+        <h3 className="font-bold text-sm tracking-widest uppercase mb-4" style={{ color: '#f59e0b' }}>
+          New Game
+        </h3>
         {players.length < 2 ? (
-          <p className="text-slate-400 text-sm">Add at least 2 players first.</p>
+          <p className="text-sm" style={mutedText}>Add at least 2 players first.</p>
         ) : (
           <>
             <div className="flex flex-wrap gap-2 mb-4">
@@ -62,23 +71,24 @@ export default function GamesPage() {
                   key={p.id}
                   type="button"
                   onClick={() => togglePlayer(p.id)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                    selectedPlayers.includes(p.id)
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
+                  className="px-3 py-1.5 rounded-full text-sm font-semibold transition-all"
+                  style={selectedPlayers.includes(p.id)
+                    ? redBtn
+                    : { backgroundColor: '#163d2a', color: '#a7c4b5', border: '1px solid #1f5038' }
+                  }
                 >
-                  {p.name}
+                  {selectedPlayers.includes(p.id) ? '✓ ' : ''}{p.name}
                 </button>
               ))}
             </div>
-            {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+            {error && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{error}</p>}
             <button
               onClick={startGame}
               disabled={selectedPlayers.length < 2}
-              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium"
+              className="px-5 py-2 rounded-lg text-sm font-bold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              style={selectedPlayers.length >= 2 ? redBtn : { backgroundColor: '#1f5038', color: '#6b9e7e' }}
             >
-              Start Game ({selectedPlayers.length} players)
+              Deal Cards — {selectedPlayers.length} Players
             </button>
           </>
         )}
@@ -87,29 +97,31 @@ export default function GamesPage() {
       {/* Game list */}
       <div className="space-y-3">
         {games.map(g => (
-          <div key={g.id} className="bg-slate-800 rounded-xl px-4 py-3 flex items-center justify-between">
+          <div key={g.id} style={card} className="px-4 py-3 flex items-center justify-between hover:brightness-110 transition-all">
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-medium">Game #{g.id}</span>
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="font-bold">Game #{g.id}</span>
                 {g.finished_at
-                  ? <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded-full">Finished</span>
-                  : <span className="text-xs bg-blue-900 text-blue-300 px-2 py-0.5 rounded-full">Active</span>
+                  ? <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: '#14532d', color: '#86efac' }}>Finished</span>
+                  : <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: '#7c1d1d', color: '#fca5a5' }}>Active</span>
                 }
               </div>
-              <p className="text-slate-400 text-xs mt-0.5">
+              <p className="text-xs" style={mutedText}>
                 {new Date(g.started_at).toLocaleString()} · {g.round_count} rounds · {g.player_names}
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-3">
               <button
                 onClick={() => setActiveGameId(g.id)}
-                className="text-blue-400 hover:text-blue-300 text-sm"
+                className="text-sm font-semibold"
+                style={{ color: '#f59e0b' }}
               >
-                Open
+                Open →
               </button>
               <button
                 onClick={() => deleteGame(g.id)}
-                className="text-slate-500 hover:text-red-400 text-sm"
+                className="text-sm"
+                style={ghostBtn}
               >
                 Delete
               </button>
@@ -117,7 +129,10 @@ export default function GamesPage() {
           </div>
         ))}
         {games.length === 0 && (
-          <p className="text-slate-400 text-sm text-center py-8">No games yet.</p>
+          <div className="text-center py-12" style={mutedText}>
+            <div className="text-4xl mb-3">🃏</div>
+            <p className="text-sm">No games yet. Deal the cards!</p>
+          </div>
         )}
       </div>
     </div>

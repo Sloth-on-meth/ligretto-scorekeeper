@@ -9,6 +9,17 @@ interface Props {
 
 type InputMode = 'formula' | 'direct';
 
+const inputStyle = {
+  backgroundColor: '#0a2218',
+  border: '1px solid #1f5038',
+  borderRadius: '6px',
+  color: '#f8f4ec',
+  width: '100%',
+  padding: '6px 8px',
+  fontSize: '0.875rem',
+  outline: 'none',
+};
+
 export default function GameView({ gameId, onBack }: Props) {
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [mode, setMode] = useState<InputMode>('formula');
@@ -30,7 +41,7 @@ export default function GameView({ gameId, onBack }: Props) {
 
   useEffect(() => { load(); }, [gameId]);
 
-  if (!detail) return <p className="text-slate-400">Loading...</p>;
+  if (!detail) return <p style={{ color: '#6b9e7e' }}>Loading...</p>;
 
   const { game, players, rounds } = detail;
 
@@ -89,47 +100,62 @@ export default function GameView({ gameId, onBack }: Props) {
     load();
   };
 
-  const scoreColor = (s: number) => s >= 0 ? 'text-green-400' : 'text-red-400';
+  const scoreColor = (s: number) => s >= 0 ? '#4ade80' : '#f87171';
   const fmtScore = (s: number) => `${s > 0 ? '+' : ''}${s}`;
 
   return (
     <div>
-      <button onClick={onBack} className="text-slate-400 hover:text-white text-sm mb-4 flex items-center gap-1">
+      <button
+        onClick={onBack}
+        className="text-sm mb-5 flex items-center gap-1 transition-colors"
+        style={{ color: '#6b9e7e' }}
+        onMouseEnter={e => (e.currentTarget.style.color = '#f8f4ec')}
+        onMouseLeave={e => (e.currentTarget.style.color = '#6b9e7e')}
+      >
         ← Back to games
       </button>
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold">Game #{game.id}</h2>
-          <p className="text-slate-400 text-sm">{new Date(game.started_at).toLocaleString()}</p>
+          <h2 className="text-2xl font-black" style={{ color: '#f8f4ec' }}>Game #{game.id}</h2>
+          <p className="text-xs mt-0.5" style={{ color: '#6b9e7e' }}>
+            {new Date(game.started_at).toLocaleString()} · {roundNumbers.length} rounds
+          </p>
         </div>
-        {!game.finished_at && (
+        {!game.finished_at ? (
           <button
             onClick={finishGame}
-            className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            className="px-4 py-2 rounded-lg text-sm font-bold tracking-wide"
+            style={{ backgroundColor: '#14532d', color: '#86efac', border: '1px solid #166534' }}
           >
-            Finish Game
+            Finish Game ✓
           </button>
+        ) : (
+          <span className="text-sm font-semibold px-3 py-1 rounded-full" style={{ backgroundColor: '#14532d', color: '#86efac' }}>
+            Finished
+          </span>
         )}
-        {game.finished_at && <span className="text-green-400 text-sm font-medium">Finished</span>}
       </div>
 
       {/* Scoreboard */}
       {roundNumbers.length > 0 && (
-        <div className="overflow-x-auto mb-8">
+        <div className="overflow-x-auto mb-8 rounded-xl" style={{ border: '1px solid #1f5038' }}>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-slate-400 border-b border-slate-700">
-                <th className="text-left py-2 pr-4">Player</th>
+              <tr style={{ borderBottom: '1px solid #1f5038', backgroundColor: '#0f2e20' }}>
+                <th className="text-left py-3 px-4 font-bold tracking-wide" style={{ color: '#6b9e7e' }}>Player</th>
                 {roundNumbers.map(r => (
-                  <th key={r} className="text-right py-2 px-2">
+                  <th key={r} className="text-right py-3 px-2" style={{ color: '#6b9e7e' }}>
                     <div className="flex flex-col items-end gap-0.5">
-                      <span>R{r}</span>
+                      <span className="font-mono text-xs">R{r}</span>
                       {!game.finished_at && (
                         <button
                           onClick={() => deleteRound(roundIdMap[r])}
-                          className="text-slate-600 hover:text-red-400 text-xs leading-none"
+                          className="text-xs leading-none transition-colors"
+                          style={{ color: '#1f5038' }}
                           title="Delete round"
+                          onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                          onMouseLeave={e => (e.currentTarget.style.color = '#1f5038')}
                         >
                           ✕
                         </button>
@@ -137,29 +163,37 @@ export default function GameView({ gameId, onBack }: Props) {
                     </div>
                   </th>
                 ))}
-                <th className="text-right py-2 pl-4 font-bold text-blue-400">Total</th>
+                <th className="text-right py-3 px-4 font-black" style={{ color: '#f59e0b' }}>Total</th>
               </tr>
             </thead>
             <tbody>
-              {sortedPlayers.map(p => (
-                <tr key={p.id} className="border-b border-slate-800">
-                  <td className="py-3 pr-4 font-medium">{p.name}</td>
+              {sortedPlayers.map((p, i) => (
+                <tr
+                  key={p.id}
+                  style={{ borderBottom: '1px solid #163d2a', backgroundColor: i === 0 ? 'rgba(245,158,11,0.04)' : 'transparent' }}
+                >
+                  <td className="py-3 px-4 font-semibold">
+                    {i === 0 && <span className="mr-1">🏆</span>}
+                    {p.name}
+                  </td>
                   {roundNumbers.map(r => {
                     const s = scoreMap[r]?.[p.id];
                     return (
-                      <td key={r} className="py-3 px-2 text-right">
+                      <td key={r} className="py-3 px-2 text-right font-mono text-xs">
                         {s ? (
                           <span
-                            className={scoreColor(s.score)}
+                            style={{ color: scoreColor(s.score) }}
                             title={s.cards_played != null ? `Played: ${s.cards_played}, In hand: ${s.cards_in_hand}` : undefined}
                           >
                             {fmtScore(s.score)}
                           </span>
-                        ) : '—'}
+                        ) : <span style={{ color: '#2d6647' }}>—</span>}
                       </td>
                     );
                   })}
-                  <td className="py-3 pl-4 text-right font-bold text-blue-400">{totals[p.id] ?? 0}</td>
+                  <td className="py-3 px-4 text-right font-black text-base" style={{ color: '#f59e0b' }}>
+                    {totals[p.id] ?? 0}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -169,21 +203,25 @@ export default function GameView({ gameId, onBack }: Props) {
 
       {/* Add round form */}
       {!game.finished_at && (
-        <div className="bg-slate-800 rounded-xl p-4">
+        <div className="rounded-xl p-5" style={{ backgroundColor: '#0f2e20', border: '1px solid #1f5038' }}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold">Round {roundNumbers.length + 1}</h3>
-            <div className="flex rounded-lg overflow-hidden border border-slate-600 text-xs font-medium">
+            <h3 className="font-bold text-sm tracking-widest uppercase" style={{ color: '#f59e0b' }}>
+              Round {roundNumbers.length + 1}
+            </h3>
+            <div className="flex rounded-lg overflow-hidden text-xs font-semibold" style={{ border: '1px solid #1f5038' }}>
               <button
                 type="button"
                 onClick={() => setMode('formula')}
-                className={`px-3 py-1.5 transition-colors ${mode === 'formula' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                className="px-3 py-1.5 transition-all"
+                style={mode === 'formula' ? { backgroundColor: '#dc2626', color: '#f8f4ec' } : { color: '#6b9e7e' }}
               >
                 Played / In hand
               </button>
               <button
                 type="button"
                 onClick={() => setMode('direct')}
-                className={`px-3 py-1.5 transition-colors ${mode === 'direct' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                className="px-3 py-1.5 transition-all"
+                style={mode === 'direct' ? { backgroundColor: '#dc2626', color: '#f8f4ec' } : { color: '#6b9e7e' }}
               >
                 Direct score
               </button>
@@ -194,16 +232,16 @@ export default function GameView({ gameId, onBack }: Props) {
             <div className="grid gap-3 mb-4">
               {players.map(p => (
                 <div key={p.id} className="flex items-center gap-3">
-                  <span className="w-28 text-sm font-medium truncate">{p.name}</span>
+                  <span className="w-28 text-sm font-semibold truncate" style={{ color: '#f8f4ec' }}>{p.name}</span>
 
                   {mode === 'formula' ? (
                     <div className="flex items-center gap-2 flex-1">
                       <div className="flex-1">
-                        <label className="text-xs text-slate-400 block mb-1">Played</label>
+                        <label className="text-xs block mb-1" style={{ color: '#6b9e7e' }}>Played</label>
                         <input
                           type="number"
                           min="0"
-                          className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                          style={inputStyle}
                           value={formulaInputs[p.id]?.cards_played ?? ''}
                           onChange={e => setFormulaInputs(prev => ({
                             ...prev,
@@ -213,11 +251,11 @@ export default function GameView({ gameId, onBack }: Props) {
                         />
                       </div>
                       <div className="flex-1">
-                        <label className="text-xs text-slate-400 block mb-1">In hand</label>
+                        <label className="text-xs block mb-1" style={{ color: '#6b9e7e' }}>In hand</label>
                         <input
                           type="number"
                           min="0"
-                          className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                          style={inputStyle}
                           value={formulaInputs[p.id]?.cards_in_hand ?? ''}
                           onChange={e => setFormulaInputs(prev => ({
                             ...prev,
@@ -227,23 +265,23 @@ export default function GameView({ gameId, onBack }: Props) {
                         />
                       </div>
                       <div className="w-14 text-right">
-                        <label className="text-xs text-slate-400 block mb-1">Score</label>
-                        <span className="text-sm font-mono">
+                        <label className="text-xs block mb-1" style={{ color: '#6b9e7e' }}>Score</label>
+                        <span className="text-sm font-mono font-bold">
                           {formulaInputs[p.id]?.cards_played !== '' && formulaInputs[p.id]?.cards_in_hand !== ''
                             ? (() => {
                                 const s = parseInt(formulaInputs[p.id].cards_played) - parseInt(formulaInputs[p.id].cards_in_hand) * 2;
-                                return <span className={scoreColor(s)}>{fmtScore(s)}</span>;
+                                return <span style={{ color: scoreColor(s) }}>{fmtScore(s)}</span>;
                               })()
-                            : <span className="text-slate-500">—</span>}
+                            : <span style={{ color: '#2d6647' }}>—</span>}
                         </span>
                       </div>
                     </div>
                   ) : (
                     <div className="flex-1">
-                      <label className="text-xs text-slate-400 block mb-1">Score</label>
+                      <label className="text-xs block mb-1" style={{ color: '#6b9e7e' }}>Score</label>
                       <input
                         type="number"
-                        className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                        style={inputStyle}
                         value={directInputs[p.id] ?? ''}
                         onChange={e => setDirectInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
                         required
@@ -253,10 +291,11 @@ export default function GameView({ gameId, onBack }: Props) {
                 </div>
               ))}
             </div>
-            {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+            {error && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{error}</p>}
             <button
               type="submit"
-              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium w-full"
+              className="w-full py-2.5 rounded-lg text-sm font-black tracking-widest uppercase transition-all"
+              style={{ backgroundColor: '#dc2626', color: '#f8f4ec' }}
             >
               Save Round
             </button>
