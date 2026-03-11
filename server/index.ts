@@ -97,7 +97,7 @@ app.get('/api/games/:id', (req, res) => {
 
 app.post('/api/games/:id/rounds', (req, res) => {
   const { scores } = req.body;
-  // scores: [{ player_id, cards_played, cards_in_hand }]
+  // scores: [{ player_id, score, cards_played?, cards_in_hand? }]
   if (!Array.isArray(scores) || scores.length === 0) {
     return res.status(400).json({ error: 'Scores required' });
   }
@@ -115,10 +115,11 @@ app.post('/api/games/:id/rounds', (req, res) => {
     const roundId = roundResult.lastInsertRowid;
 
     const insertScore = db.prepare(
-      'INSERT INTO round_scores (round_id, player_id, cards_played, cards_in_hand) VALUES (?, ?, ?, ?)'
+      'INSERT INTO round_scores (round_id, player_id, cards_played, cards_in_hand, score) VALUES (?, ?, ?, ?, ?)'
     );
     for (const s of scores) {
-      insertScore.run(roundId, s.player_id, s.cards_played, s.cards_in_hand);
+      const score = s.score ?? (s.cards_played - s.cards_in_hand * 2);
+      insertScore.run(roundId, s.player_id, s.cards_played ?? null, s.cards_in_hand ?? null, score);
     }
     return roundId;
   });

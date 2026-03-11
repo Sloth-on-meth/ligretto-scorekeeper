@@ -1,35 +1,43 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useState } from 'react';
+import PlayersPage from './components/PlayersPage';
+import GamesPage from './components/GamesPage';
+import StatsPage from './components/StatsPage';
 
-function App() {
-  const [count, setCount] = useState(0)
+type Tab = 'games' | 'players' | 'stats';
+
+export default function App() {
+  const [tab, setTab] = useState<Tab>('games');
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
-}
+    <div className="min-h-screen bg-slate-900 text-slate-100">
+      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+          <h1 className="text-lg font-bold tracking-tight">
+            🃏 Ligretto Scorekeeper
+          </h1>
+          <nav className="flex gap-1">
+            {(['games', 'players', 'stats'] as Tab[]).map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${
+                  tab === t
+                    ? 'bg-slate-700 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </header>
 
-export default App
+      <main className="max-w-3xl mx-auto px-4 py-8">
+        {tab === 'games' && <GamesPage />}
+        {tab === 'players' && <PlayersPage />}
+        {tab === 'stats' && <StatsPage />}
+      </main>
+    </div>
+  );
+}

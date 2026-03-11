@@ -13,9 +13,10 @@ export interface Game {
 }
 
 export interface RoundScore {
+  id: number; // round id
   player_id: number;
-  cards_played: number;
-  cards_in_hand: number;
+  cards_played: number | null;
+  cards_in_hand: number | null;
   score: number;
   round_number: number;
   game_id: number;

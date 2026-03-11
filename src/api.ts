@@ -29,7 +29,7 @@ export const api = {
     delete: (id: number) => req<void>(`/games/${id}`, { method: 'DELETE' }),
   },
   rounds: {
-    add: (gameId: number, scores: { player_id: number; cards_played: number; cards_in_hand: number }[]) =>
+    add: (gameId: number, scores: { player_id: number; score?: number; cards_played?: number; cards_in_hand?: number }[]) =>
       req(`/games/${gameId}/rounds`, { method: 'POST', body: JSON.stringify({ scores }) }),
     delete: (gameId: number, roundId: number) =>
       req<void>(`/games/${gameId}/rounds/${roundId}`, { method: 'DELETE' }),

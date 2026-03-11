@@ -39,9 +39,9 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     round_id INTEGER NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
     player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-    cards_played INTEGER NOT NULL,
-    cards_in_hand INTEGER NOT NULL,
-    score INTEGER NOT NULL GENERATED ALWAYS AS (cards_played - cards_in_hand * 2) STORED,
+    cards_played INTEGER,
+    cards_in_hand INTEGER,
+    score INTEGER NOT NULL,
     UNIQUE (round_id, player_id)
   );
 `);
