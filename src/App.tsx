@@ -2,46 +2,52 @@ import { useState } from 'react';
 import PlayersPage from './components/PlayersPage';
 import GamesPage from './components/GamesPage';
 import StatsPage from './components/StatsPage';
+import { surface, border, muted } from './theme';
 
 type Tab = 'games' | 'players' | 'stats';
-
-const TAB_ICONS: Record<Tab, string> = {
-  games: '♠',
-  players: '♥',
-  stats: '♦',
-};
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('games');
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#0a2218', color: '#f8f4ec' }}>
-      <header style={{ borderBottom: '1px solid #1f5038', backgroundColor: 'rgba(10,34,24,0.92)', backdropFilter: 'blur(8px)' }}
+    <div className="min-h-screen" style={{ backgroundColor: '#111118', color: '#fff' }}>
+      <header style={{ backgroundColor: surface, borderBottom: `1px solid ${border}` }}
         className="sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">🃏</span>
-            <div>
-              <h1 className="text-base font-black tracking-widest uppercase" style={{ color: '#dc2626', letterSpacing: '0.15em' }}>
+        <div className="max-w-3xl mx-auto px-4 py-0 flex items-stretch justify-between">
+
+          {/* Logo */}
+          <div className="flex items-center gap-0 py-2">
+            {/* Coloured card stack */}
+            <div className="flex mr-3" style={{ gap: '-4px' }}>
+              {['#c81818','#1844c8','#18a030','#c89800'].map((c, i) => (
+                <div key={i} className="rounded-md flex items-center justify-center font-black text-white text-xs"
+                  style={{ width: 22, height: 30, backgroundColor: c, marginLeft: i === 0 ? 0 : -8, zIndex: i, boxShadow: '1px 1px 3px rgba(0,0,0,0.5)', transform: `rotate(${(i-1.5)*6}deg)` }}>
+                  {i + 1}
+                </div>
+              ))}
+            </div>
+            <div className="ml-2">
+              <div className="font-black text-lg leading-none tracking-widest uppercase" style={{ color: '#e02020' }}>
                 Ligretto
-              </h1>
-              <p className="text-xs tracking-widest uppercase" style={{ color: '#6b9e7e', letterSpacing: '0.2em', marginTop: '-2px' }}>
+              </div>
+              <div className="text-xs tracking-widest uppercase" style={{ color: muted, fontSize: '0.6rem' }}>
                 Scorekeeper
-              </p>
+              </div>
             </div>
           </div>
-          <nav className="flex gap-1">
+
+          {/* Nav tabs */}
+          <nav className="flex items-stretch gap-0">
             {(['games', 'players', 'stats'] as Tab[]).map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className="px-3 py-1.5 rounded-lg text-sm font-semibold capitalize transition-all"
+                className="px-4 text-sm font-bold capitalize transition-all relative"
                 style={tab === t
-                  ? { backgroundColor: '#dc2626', color: '#f8f4ec' }
-                  : { color: '#6b9e7e', backgroundColor: 'transparent' }
+                  ? { color: '#fff', borderBottom: '3px solid #e02020' }
+                  : { color: muted, borderBottom: '3px solid transparent' }
                 }
               >
-                <span className="mr-1 text-xs">{TAB_ICONS[t]}</span>
                 {t}
               </button>
             ))}
@@ -54,10 +60,6 @@ export default function App() {
         {tab === 'players' && <PlayersPage />}
         {tab === 'stats' && <StatsPage />}
       </main>
-
-      <footer className="max-w-3xl mx-auto px-4 pb-6 text-center text-xs" style={{ color: '#2d6647' }}>
-        ♠ ♥ ♦ ♣
-      </footer>
     </div>
   );
 }

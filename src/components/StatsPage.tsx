@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { PlayerStats } from '../types';
+import { PLAYER_COLORS, surface, border, muted } from '../theme';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
@@ -11,58 +12,50 @@ export default function StatsPage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-black tracking-wide mb-6" style={{ color: '#f8f4ec' }}>
-        ♦ Statistics
-      </h2>
+      <h2 className="text-2xl font-black mb-6 uppercase tracking-wide">Statistics</h2>
+
       {stats.length === 0 ? (
-        <div className="text-center py-12" style={{ color: '#6b9e7e' }}>
-          <div className="text-4xl mb-3">♦</div>
+        <div className="text-center py-16" style={{ color: muted }}>
           <p className="text-sm">No stats yet. Play some games!</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ borderBottom: '1px solid #1f5038', color: '#6b9e7e' }}>
-                <th className="text-left py-2 pr-4">#</th>
-                <th className="text-left py-2 pr-4">Player</th>
-                <th className="text-right py-2 pr-4">Games</th>
-                <th className="text-right py-2 pr-4">Rounds</th>
-                <th className="text-right py-2 pr-4 font-bold" style={{ color: '#f59e0b' }}>Total</th>
-                <th className="text-right py-2 pr-4">Avg/Rd</th>
-                <th className="text-right py-2 pr-4">Best</th>
-                <th className="text-right py-2">Worst</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.map((s, i) => (
-                <tr
-                  key={s.id}
-                  style={{ borderBottom: '1px solid #163d2a' }}
-                  className="transition-colors"
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(15,46,32,0.8)')}
-                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <td className="py-3 pr-4" style={{ color: '#6b9e7e' }}>
-                    {MEDALS[i] ?? i + 1}
-                  </td>
-                  <td className="py-3 pr-4 font-bold">{s.name}</td>
-                  <td className="py-3 pr-4 text-right" style={{ color: '#a7c4b5' }}>{s.games_played}</td>
-                  <td className="py-3 pr-4 text-right" style={{ color: '#a7c4b5' }}>{s.rounds_played}</td>
-                  <td className="py-3 pr-4 text-right font-black text-lg" style={{ color: '#f59e0b' }}>
-                    {s.total_score}
-                  </td>
-                  <td className="py-3 pr-4 text-right" style={{ color: '#a7c4b5' }}>{s.avg_score_per_round}</td>
-                  <td className="py-3 pr-4 text-right font-semibold" style={{ color: '#4ade80' }}>
-                    {s.best_round != null ? `+${s.best_round > 0 ? '' : ''}${s.best_round}` : '—'}
-                  </td>
-                  <td className="py-3 text-right font-semibold" style={{ color: '#f87171' }}>
-                    {s.worst_round ?? '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-3">
+          {stats.map((s, i) => {
+            const c = PLAYER_COLORS[i % PLAYER_COLORS.length];
+            return (
+              <div key={s.id} className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${border}` }}>
+                {/* Player header stripe */}
+                <div className="flex items-center justify-between px-4 py-3"
+                  style={{ backgroundColor: c.bg }}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">{MEDALS[i] ?? `#${i + 1}`}</span>
+                    <span className="font-black text-lg text-white">{s.name}</span>
+                  </div>
+                  <div className="font-black text-3xl text-white">{s.total_score}</div>
+                </div>
+
+                {/* Stats grid */}
+                <div className="grid grid-cols-4 divide-x" style={{ backgroundColor: surface, borderColor: border }}>
+                  {[
+                    { label: 'Games', value: s.games_played },
+                    { label: 'Rounds', value: s.rounds_played },
+                    { label: 'Avg/Rd', value: s.avg_score_per_round },
+                    { label: 'Best', value: s.best_round != null ? `+${s.best_round}` : '—', highlight: '#4ade80' },
+                  ].map(stat => (
+                    <div key={stat.label} className="text-center py-3 px-2"
+                      style={{ borderColor: border }}>
+                      <div className="font-black text-lg" style={{ color: stat.highlight ?? '#fff' }}>
+                        {stat.value}
+                      </div>
+                      <div className="text-xs font-medium uppercase tracking-wide" style={{ color: muted }}>
+                        {stat.label}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
