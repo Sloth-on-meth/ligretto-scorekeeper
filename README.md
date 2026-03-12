@@ -1,88 +1,116 @@
-# 🃏 Ligretto Scorekeeper
+<div align="center">
 
-A fast, local scorekeeper webapp for **Ligretto** — the frantic real-time card game. Track rounds, see live standings, and review stats across all your games.
+# 🃏 ligretto-scorekeeper
 
----
+**self-hosted scorekeeper for the world's most chaotic card game**
 
-## Features
+[![made with](https://img.shields.io/badge/made_with-react_19-61dafb?style=flat-square&logo=react)](https://react.dev)
+[![typescript](https://img.shields.io/badge/typescript-5.9-3178c6?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
+[![sqlite](https://img.shields.io/badge/storage-sqlite-003b57?style=flat-square&logo=sqlite)](https://www.sqlite.org)
+[![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](#license)
 
-- **Multi-game tracking** — start a new game, add rounds, finish it, start another
-- **Two input modes** — enter *cards played + cards in hand* (auto-calculates score) or type the score directly when you've got a big group
-- **Live scoreboard** — sorted by total, color-coded per round, with per-round tooltips showing raw counts
-- **Player statistics** — lifetime totals, averages, best and worst rounds across all games
-- **Persistent storage** — everything lives in a local SQLite file (`ligretto.db`)
-- **Delete & correct** — remove a bad round or an entire game without hassle
+*no accounts. no cloud. no bullshit. just cards and scores.*
 
-### Scoring formula
-
-> **Score = Cards played to the middle − (Cards remaining in Ligretto stack × 2)**
+</div>
 
 ---
 
-## Tech stack
+## what is this
 
-| Layer | Technology |
+a dead-simple webapp you run locally to track [Ligretto](https://en.wikipedia.org/wiki/Ligretto) scores across multiple games and players. everything persists to a single `.db` file on your machine. bring your laptop to game night, open a tab, and go.
+
+## features
+
+```
+🎮  multi-game sessions     start, track, finish, repeat
+📊  live scoreboard         sorted by total, per-round breakdown
+🏆  winner tracking         automatically crowns the winner on finish
+⚡  two input modes         formula (played − hand×2) or direct score entry
+📈  player stats            lifetime totals, avg per round, best/worst
+📤  csv export              download any game as a spreadsheet
+📱  mobile-friendly         big tap targets, numeric keyboard on phones
+🗑️  full edit control       delete rounds or entire games at any time
+💾  local sqlite            one file, zero dependencies on the internet
+```
+
+**scoring formula**
+```
+score = cards_played_to_middle − (cards_in_ligretto_stack × 2)
+```
+
+---
+
+## stack
+
+| | |
 |---|---|
-| Frontend | React 19 + TypeScript + Vite |
-| Styling | Tailwind CSS v4 |
-| Backend | Express 5 + tsx |
-| Database | SQLite via `better-sqlite3` |
+| **frontend** | React 19 + TypeScript + Vite + Tailwind CSS v4 |
+| **backend** | Express 5, running via `tsx` |
+| **database** | SQLite — `better-sqlite3` |
+| **dev** | `concurrently` — one command starts everything |
 
 ---
 
-## Getting started
+## self-hosting
 
-### Prerequisites
+### requirements
 
-- [Node.js](https://nodejs.org/) v18+
+- Node.js v18+
 
-### Install & run
+### install
 
 ```bash
-git clone https://github.com/your-username/ligretto-scorekeeper.git
+git clone https://github.com/your-username/ligretto-scorekeeper
 cd ligretto-scorekeeper
 npm install
+```
+
+### run
+
+```bash
 npm run dev
 ```
 
-Open **http://localhost:5173** in your browser.
+open **http://localhost:5173** — that's it.
 
-The backend API runs on port **3001** and is proxied automatically by Vite. The database file `ligretto.db` is created automatically in the project root on first run.
+the API runs on `:3001`, proxied by Vite. the database is created at `ligretto.db` on first run (git-ignored, yours forever).
 
-### Available scripts
+### scripts
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Run frontend + backend concurrently (development) |
-| `npm run build` | Build frontend for production |
-| `npm run preview` | Preview production build |
-| `npm run server` | Run backend only |
+```bash
+npm run dev      # frontend + backend, watch mode
+npm run build    # production build
+npm run server   # backend only
+npm run preview  # preview the production build
+```
 
 ---
 
-## Project structure
+## structure
 
 ```
 ligretto-scorekeeper/
+│
 ├── server/
-│   ├── db.ts          # SQLite schema & connection
-│   └── index.ts       # Express API routes
+│   ├── db.ts          # schema + sqlite connection
+│   └── index.ts       # express api
+│
 ├── src/
 │   ├── components/
-│   │   ├── GameView.tsx    # Scoreboard + round entry
-│   │   ├── GamesPage.tsx   # Game list + new game
-│   │   ├── PlayersPage.tsx # Player management
-│   │   └── StatsPage.tsx   # Lifetime statistics
-│   ├── api.ts         # Typed fetch client
-│   ├── types.ts       # Shared TypeScript types
-│   └── App.tsx        # Root + navigation
-├── ligretto.db        # SQLite database (auto-created, git-ignored)
+│   │   ├── GameView.tsx    # scoreboard + round entry
+│   │   ├── GamesPage.tsx   # game list + new game
+│   │   ├── PlayersPage.tsx # player management
+│   │   └── StatsPage.tsx   # lifetime stats
+│   ├── api.ts         # typed fetch wrapper
+│   ├── theme.ts       # color palette
+│   ├── types.ts       # shared ts types
+│   └── App.tsx        # root + nav
+│
+├── ligretto.db        # ← your data lives here (auto-created)
 └── vite.config.ts
 ```
 
----
-
-## Database schema
+## schema
 
 ```sql
 players      (id, name, created_at)
@@ -94,6 +122,6 @@ round_scores (id, round_id, player_id, cards_played, cards_in_hand, score)
 
 ---
 
-## License
+## license
 
-MIT
+MIT — do whatever you want with it.
