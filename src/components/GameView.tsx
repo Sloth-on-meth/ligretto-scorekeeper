@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { GameDetail, RoundScore } from '../types';
 import { PLAYER_COLORS, surface, border, muted } from '../theme';
@@ -280,17 +280,27 @@ export default function GameView({ gameId, onBack }: Props) {
             </div>
           </div>
 
-          {mode === 'formula' && (
-            <div className="flex gap-2 text-xs font-black uppercase tracking-wide mb-2 pl-1"
-              style={{ color: muted, paddingLeft: '44px' }}>
-              <span className="flex-1 text-center">Played</span>
-              <span className="flex-1 text-center">In hand</span>
-              <span style={{ width: 48 }} className="text-center">Score</span>
-            </div>
-          )}
-
           <form onSubmit={submitRound}>
-            <div className="space-y-2 mb-4">
+            {/* Grid: [chip+name] [played] [in hand] [score]  — or  [chip+name] [score] in direct mode */}
+            <div className="mb-4" style={{
+              display: 'grid',
+              gridTemplateColumns: mode === 'formula' ? '1fr 1fr 1fr 48px' : '1fr 1fr',
+              gap: '8px',
+              alignItems: 'center',
+            }}>
+              {/* Column headers */}
+              <div className="text-xs font-black uppercase tracking-wide" style={{ color: muted }}>Player</div>
+              {mode === 'formula' ? (
+                <>
+                  <div className="text-xs font-black uppercase tracking-wide text-center" style={{ color: muted }}>Played</div>
+                  <div className="text-xs font-black uppercase tracking-wide text-center" style={{ color: muted }}>In hand</div>
+                  <div className="text-xs font-black uppercase tracking-wide text-center" style={{ color: muted }}>Score</div>
+                </>
+              ) : (
+                <div className="text-xs font-black uppercase tracking-wide text-center" style={{ color: muted }}>Score</div>
+              )}
+
+              {/* Player rows */}
               {players.map(p => {
                 const c = PLAYER_COLORS[playerColorIndex[p.id]];
                 const fi = formulaInputs[p.id];
@@ -299,54 +309,42 @@ export default function GameView({ gameId, onBack }: Props) {
                   : null;
 
                 return (
-                  <div key={p.id} className="flex items-center gap-2">
-                    {/* Card chip + name */}
-                    <div className="flex items-center gap-2 flex-shrink-0" style={{ width: 'auto', minWidth: 0 }}>
-                      <div className="rounded-md font-black text-xs flex items-center justify-center flex-shrink-0"
+                  <React.Fragment key={p.id}>
+                    {/* Name cell */}
+                    <div className="flex items-center gap-2">
+                      <div className="rounded-md font-black flex items-center justify-center flex-shrink-0"
                         style={{ width: 28, height: 36, backgroundColor: c.bg, color: c.text, fontSize: '0.7rem' }}>
                         {players.indexOf(p) + 1}
                       </div>
-                      <span className="font-bold text-sm truncate" style={{ maxWidth: 64 }}>{p.name}</span>
+                      <span className="font-bold text-sm truncate">{p.name}</span>
                     </div>
 
                     {mode === 'formula' ? (
-                      <div className="flex items-center gap-2 flex-1">
-                        <input
-                          type="number" min="0"
-                          inputMode="numeric"
-                          placeholder="0"
+                      <>
+                        <input type="number" min="0" inputMode="numeric" placeholder="0"
                           style={inputStyle}
                           value={fi?.cards_played ?? ''}
                           onChange={e => setFormulaInputs(prev => ({ ...prev, [p.id]: { ...prev[p.id], cards_played: e.target.value } }))}
-                          required
-                        />
-                        <input
-                          type="number" min="0"
-                          inputMode="numeric"
-                          placeholder="0"
+                          required />
+                        <input type="number" min="0" inputMode="numeric" placeholder="0"
                           style={inputStyle}
                           value={fi?.cards_in_hand ?? ''}
                           onChange={e => setFormulaInputs(prev => ({ ...prev, [p.id]: { ...prev[p.id], cards_in_hand: e.target.value } }))}
-                          required
-                        />
-                        <div className="font-black font-mono text-base text-center flex-shrink-0" style={{ width: 48 }}>
+                          required />
+                        <div className="font-black font-mono text-base text-center">
                           {previewScore !== null && !isNaN(previewScore)
                             ? <span style={{ color: scoreColor(previewScore) }}>{fmtScore(previewScore)}</span>
                             : <span style={{ color: border }}>—</span>}
                         </div>
-                      </div>
+                      </>
                     ) : (
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        placeholder="0"
-                        style={{ ...inputStyle, flex: 1 }}
+                      <input type="number" inputMode="numeric" placeholder="0"
+                        style={inputStyle}
                         value={directInputs[p.id] ?? ''}
                         onChange={e => setDirectInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
-                        required
-                      />
+                        required />
                     )}
-                  </div>
+                  </React.Fragment>
                 );
               })}
             </div>
