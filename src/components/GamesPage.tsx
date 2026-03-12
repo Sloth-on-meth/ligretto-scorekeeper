@@ -100,41 +100,52 @@ export default function GamesPage() {
       <div className="space-y-2">
         {games.map(g => (
           <div key={g.id}
-            className="rounded-xl px-4 py-3 flex items-center justify-between"
-            style={{ backgroundColor: surface, border: `1px solid ${border}` }}
+            className="rounded-xl overflow-hidden"
+            style={{ border: `1px solid ${g.winner_name ? '#e02020' : border}` }}
           >
-            <div>
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className="font-bold text-sm">Game #{g.id}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full font-bold"
-                  style={g.finished_at
-                    ? { backgroundColor: '#0f2a18', color: '#4ade80' }
-                    : { backgroundColor: '#2a1010', color: '#fca5a5' }
-                  }>
-                  {g.finished_at ? 'Finished' : 'Active'}
-                </span>
+            {/* Winner banner for finished games */}
+            {g.winner_name && (
+              <div className="flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest"
+                style={{ backgroundColor: '#e02020', color: '#fff' }}>
+                <span>🏆</span>
+                <span>{g.winner_name} wins!</span>
               </div>
-              <p className="text-xs" style={{ color: muted }}>
-                {new Date(g.started_at).toLocaleString()} · {g.round_count} rounds · {g.player_names}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setActiveGameId(g.id)}
-                className="text-sm font-black uppercase tracking-wide px-3 py-1.5 rounded-lg"
-                style={{ backgroundColor: '#e02020', color: '#fff' }}
-              >
-                Open
-              </button>
-              <button
-                onClick={() => deleteGame(g.id)}
-                className="text-xs font-medium transition-colors"
-                style={{ color: muted }}
-                onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                onMouseLeave={e => (e.currentTarget.style.color = muted)}
-              >
-                Delete
-              </button>
+            )}
+
+            <div className="px-4 py-3 flex items-center justify-between"
+              style={{ backgroundColor: surface }}>
+              <div>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="font-bold text-sm">Game #{g.id}</span>
+                  {!g.finished_at && (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-bold"
+                      style={{ backgroundColor: '#2a1010', color: '#fca5a5' }}>
+                      Active
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs" style={{ color: muted }}>
+                  {new Date(g.started_at).toLocaleString()} · {g.round_count} rounds · {g.player_names}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setActiveGameId(g.id)}
+                  className="text-sm font-black uppercase tracking-wide px-3 py-1.5 rounded-lg"
+                  style={{ backgroundColor: '#e02020', color: '#fff' }}
+                >
+                  Open
+                </button>
+                <button
+                  onClick={() => deleteGame(g.id)}
+                  className="text-xs font-medium transition-colors"
+                  style={{ color: muted }}
+                  onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                  onMouseLeave={e => (e.currentTarget.style.color = muted)}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
         ))}

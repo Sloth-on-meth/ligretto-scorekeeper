@@ -10,6 +10,7 @@ export interface Game {
   finished_at: string | null;
   round_count?: number;
   player_names?: string;
+  winner_name?: string | null;
 }
 
 export interface RoundScore {

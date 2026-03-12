@@ -10,6 +10,32 @@ interface Props {
 
 type InputMode = 'formula' | 'direct';
 
+function exportCSV(detail: GameDetail) {
+  const { game, players, rounds } = detail;
+  const roundNumbers = [...new Set(rounds.map(r => r.round_number))].sort((a, b) => a - b);
+  const scoreMap: Record<number, Record<number, number>> = {};
+  rounds.forEach(r => {
+    if (!scoreMap[r.round_number]) scoreMap[r.round_number] = {};
+    scoreMap[r.round_number][r.player_id] = r.score;
+  });
+
+  const header = ['Player', ...roundNumbers.map(r => `R${r}`), 'Total'].join(',');
+  const rows = players.map(p => {
+    const total = rounds.filter(r => r.player_id === p.id).reduce((s, r) => s + r.score, 0);
+    const scores = roundNumbers.map(r => scoreMap[r]?.[p.id] ?? '');
+    return [p.name, ...scores, total].join(',');
+  });
+
+  const csv = [header, ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ligretto-game-${game.id}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function GameView({ gameId, onBack }: Props) {
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [mode, setMode] = useState<InputMode>('formula');
@@ -50,7 +76,6 @@ export default function GameView({ gameId, onBack }: Props) {
   });
 
   const sortedPlayers = [...players].sort((a, b) => (totals[b.id] ?? 0) - (totals[a.id] ?? 0));
-  // Map player id -> color index (by sorted position, stable across re-renders by player id)
   const playerColorIndex: Record<number, number> = {};
   players.forEach((p, i) => { playerColorIndex[p.id] = i % PLAYER_COLORS.length; });
 
@@ -96,11 +121,14 @@ export default function GameView({ gameId, onBack }: Props) {
   const inputStyle: React.CSSProperties = {
     backgroundColor: '#111118',
     border: `1px solid ${border}`,
-    borderRadius: 8,
+    borderRadius: 10,
     color: '#fff',
     width: '100%',
-    padding: '7px 10px',
-    fontSize: '0.875rem',
+    padding: '12px 14px',
+    fontSize: '1.1rem',
+    fontWeight: 700,
+    minHeight: 48,
+    textAlign: 'center',
   };
 
   return (
@@ -116,105 +144,119 @@ export default function GameView({ gameId, onBack }: Props) {
       </button>
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-start justify-between mb-6 gap-3">
         <div>
           <h2 className="text-2xl font-black uppercase tracking-wide">Game #{game.id}</h2>
           <p className="text-xs mt-0.5" style={{ color: muted }}>
             {new Date(game.started_at).toLocaleString()} · {roundNumbers.length} rounds
           </p>
         </div>
-        {!game.finished_at ? (
-          <button onClick={finishGame}
-            className="px-4 py-2 rounded-xl text-sm font-black uppercase tracking-wide"
-            style={{ backgroundColor: '#15502a', color: '#4ade80', border: '1px solid #1a6634' }}>
-            Finish ✓
-          </button>
-        ) : (
-          <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase"
-            style={{ backgroundColor: '#15502a', color: '#4ade80' }}>
-            Finished
-          </span>
-        )}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {roundNumbers.length > 0 && (
+            <button
+              onClick={() => exportCSV(detail)}
+              className="px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wide"
+              style={{ backgroundColor: surface, border: `1px solid ${border}`, color: muted }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
+              onMouseLeave={e => (e.currentTarget.style.color = muted)}
+            >
+              CSV ↓
+            </button>
+          )}
+          {!game.finished_at ? (
+            <button onClick={finishGame}
+              className="px-4 py-2 rounded-xl text-sm font-black uppercase tracking-wide"
+              style={{ backgroundColor: '#15502a', color: '#4ade80', border: '1px solid #1a6634' }}>
+              Finish ✓
+            </button>
+          ) : (
+            <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase"
+              style={{ backgroundColor: '#15502a', color: '#4ade80' }}>
+              Finished
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Scoreboard */}
+      {/* Scoreboard — horizontal scroll on mobile */}
       {roundNumbers.length > 0 && (
         <div className="rounded-2xl overflow-hidden mb-8" style={{ border: `1px solid ${border}` }}>
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ backgroundColor: '#1a1a24' }}>
-                <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-widest" style={{ color: muted }}>
-                  Player
-                </th>
-                {roundNumbers.map(r => (
-                  <th key={r} className="text-center py-3 px-2" style={{ color: muted }}>
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-xs font-black uppercase tracking-wide">R{r}</span>
-                      {!game.finished_at && (
-                        <button onClick={() => deleteRound(roundIdMap[r])}
-                          className="text-xs leading-none transition-colors"
-                          style={{ color: border }}
-                          title="Delete round"
-                          onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                          onMouseLeave={e => (e.currentTarget.style.color = border)}>
-                          ✕
-                        </button>
-                      )}
-                    </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ minWidth: `${Math.max(400, players.length * 80 + roundNumbers.length * 60)}px` }}>
+              <thead>
+                <tr style={{ backgroundColor: '#1a1a24' }}>
+                  <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-widest" style={{ color: muted }}>
+                    Player
                   </th>
-                ))}
-                <th className="text-right py-3 px-4 text-xs font-black uppercase tracking-widest" style={{ color: muted }}>
-                  Total
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedPlayers.map((p, rank) => {
-                const c = PLAYER_COLORS[playerColorIndex[p.id]];
-                return (
-                  <tr key={p.id} style={{ borderTop: `1px solid ${border}` }}>
-                    {/* Player name cell with color stripe */}
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="rounded-md font-black text-xs flex items-center justify-center flex-shrink-0"
-                          style={{ width: 26, height: 34, backgroundColor: c.bg, color: c.text, boxShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>
-                          {rank === 0 ? '🏆' : rank + 1}
-                        </div>
-                        <span className="font-bold truncate">{p.name}</span>
+                  {roundNumbers.map(r => (
+                    <th key={r} className="text-center py-3 px-2" style={{ color: muted, minWidth: 48 }}>
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-xs font-black uppercase tracking-wide">R{r}</span>
+                        {!game.finished_at && (
+                          <button onClick={() => deleteRound(roundIdMap[r])}
+                            className="text-xs leading-none transition-colors"
+                            style={{ color: border }}
+                            title="Delete round"
+                            onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                            onMouseLeave={e => (e.currentTarget.style.color = border)}>
+                            ✕
+                          </button>
+                        )}
                       </div>
-                    </td>
-                    {roundNumbers.map(r => {
-                      const s = scoreMap[r]?.[p.id];
-                      return (
-                        <td key={r} className="py-3 px-2 text-center font-mono text-sm">
-                          {s ? (
-                            <span style={{ color: scoreColor(s.score) }}
-                              title={s.cards_played != null ? `Played: ${s.cards_played}, In hand: ${s.cards_in_hand}` : undefined}>
-                              {fmtScore(s.score)}
-                            </span>
-                          ) : <span style={{ color: border }}>—</span>}
-                        </td>
-                      );
-                    })}
-                    <td className="py-3 px-4 text-right font-black text-lg" style={{ color: c.bg === '#c89800' ? '#d4a500' : c.bg }}>
-                      {totals[p.id] ?? 0}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </th>
+                  ))}
+                  <th className="text-right py-3 px-4 text-xs font-black uppercase tracking-widest" style={{ color: muted }}>
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedPlayers.map((p, rank) => {
+                  const c = PLAYER_COLORS[playerColorIndex[p.id]];
+                  return (
+                    <tr key={p.id} style={{ borderTop: `1px solid ${border}` }}>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className="rounded-md font-black text-xs flex items-center justify-center flex-shrink-0"
+                            style={{ width: 26, height: 34, backgroundColor: c.bg, color: c.text, boxShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>
+                            {rank === 0 ? '🏆' : rank + 1}
+                          </div>
+                          <span className="font-bold">{p.name}</span>
+                        </div>
+                      </td>
+                      {roundNumbers.map(r => {
+                        const s = scoreMap[r]?.[p.id];
+                        return (
+                          <td key={r} className="py-3 px-2 text-center font-mono text-sm">
+                            {s ? (
+                              <span style={{ color: scoreColor(s.score) }}
+                                title={s.cards_played != null ? `Played: ${s.cards_played}, In hand: ${s.cards_in_hand}` : undefined}>
+                                {fmtScore(s.score)}
+                              </span>
+                            ) : <span style={{ color: border }}>—</span>}
+                          </td>
+                        );
+                      })}
+                      <td className="py-3 px-4 text-right font-black text-lg"
+                        style={{ color: c.bg === '#c89800' ? '#d4a500' : c.bg }}>
+                        {totals[p.id] ?? 0}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* Round entry form */}
+      {/* Round entry form — mobile-first card-per-player layout */}
       {!game.finished_at && (
-        <div className="rounded-2xl p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
-          <div className="flex items-center justify-between mb-5">
+        <div className="rounded-2xl p-4" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+          <div className="flex items-center justify-between mb-4">
             <p className="text-xs font-black uppercase tracking-widest" style={{ color: muted }}>
               Round {roundNumbers.length + 1}
             </p>
-            {/* Mode toggle */}
             <div className="flex rounded-xl overflow-hidden text-xs font-black uppercase tracking-wide"
               style={{ border: `1px solid ${border}` }}>
               <button type="button" onClick={() => setMode('formula')}
@@ -230,54 +272,71 @@ export default function GameView({ gameId, onBack }: Props) {
             </div>
           </div>
 
+          {mode === 'formula' && (
+            <div className="flex gap-2 text-xs font-black uppercase tracking-wide mb-2 pl-1"
+              style={{ color: muted, paddingLeft: '44px' }}>
+              <span className="flex-1 text-center">Played</span>
+              <span className="flex-1 text-center">In hand</span>
+              <span style={{ width: 48 }} className="text-center">Score</span>
+            </div>
+          )}
+
           <form onSubmit={submitRound}>
-            <div className="space-y-3 mb-5">
+            <div className="space-y-2 mb-4">
               {players.map(p => {
                 const c = PLAYER_COLORS[playerColorIndex[p.id]];
+                const fi = formulaInputs[p.id];
+                const previewScore = fi?.cards_played !== '' && fi?.cards_in_hand !== ''
+                  ? parseInt(fi.cards_played) - parseInt(fi.cards_in_hand) * 2
+                  : null;
+
                 return (
-                  <div key={p.id} className="flex items-center gap-3">
-                    {/* Card chip */}
-                    <div className="rounded-md font-black text-xs flex items-center justify-center flex-shrink-0"
-                      style={{ width: 26, height: 34, backgroundColor: c.bg, color: c.text }}>
-                      {players.indexOf(p) + 1}
+                  <div key={p.id} className="flex items-center gap-2">
+                    {/* Card chip + name */}
+                    <div className="flex items-center gap-2 flex-shrink-0" style={{ width: 'auto', minWidth: 0 }}>
+                      <div className="rounded-md font-black text-xs flex items-center justify-center flex-shrink-0"
+                        style={{ width: 28, height: 36, backgroundColor: c.bg, color: c.text, fontSize: '0.7rem' }}>
+                        {players.indexOf(p) + 1}
+                      </div>
+                      <span className="font-bold text-sm truncate" style={{ maxWidth: 64 }}>{p.name}</span>
                     </div>
-                    <span className="w-24 text-sm font-bold truncate">{p.name}</span>
 
                     {mode === 'formula' ? (
-                      <div className="flex items-end gap-2 flex-1">
-                        <div className="flex-1">
-                          <label className="text-xs font-medium block mb-1" style={{ color: muted }}>Played</label>
-                          <input type="number" min="0" style={inputStyle}
-                            value={formulaInputs[p.id]?.cards_played ?? ''}
-                            onChange={e => setFormulaInputs(prev => ({ ...prev, [p.id]: { ...prev[p.id], cards_played: e.target.value } }))}
-                            required />
-                        </div>
-                        <div className="flex-1">
-                          <label className="text-xs font-medium block mb-1" style={{ color: muted }}>In hand</label>
-                          <input type="number" min="0" style={inputStyle}
-                            value={formulaInputs[p.id]?.cards_in_hand ?? ''}
-                            onChange={e => setFormulaInputs(prev => ({ ...prev, [p.id]: { ...prev[p.id], cards_in_hand: e.target.value } }))}
-                            required />
-                        </div>
-                        <div className="w-12 text-right pb-1">
-                          <span className="font-black font-mono text-base">
-                            {formulaInputs[p.id]?.cards_played !== '' && formulaInputs[p.id]?.cards_in_hand !== ''
-                              ? (() => {
-                                  const s = parseInt(formulaInputs[p.id].cards_played) - parseInt(formulaInputs[p.id].cards_in_hand) * 2;
-                                  return <span style={{ color: scoreColor(s) }}>{fmtScore(s)}</span>;
-                                })()
-                              : <span style={{ color: border }}>—</span>}
-                          </span>
+                      <div className="flex items-center gap-2 flex-1">
+                        <input
+                          type="number" min="0"
+                          inputMode="numeric"
+                          placeholder="0"
+                          style={inputStyle}
+                          value={fi?.cards_played ?? ''}
+                          onChange={e => setFormulaInputs(prev => ({ ...prev, [p.id]: { ...prev[p.id], cards_played: e.target.value } }))}
+                          required
+                        />
+                        <input
+                          type="number" min="0"
+                          inputMode="numeric"
+                          placeholder="0"
+                          style={inputStyle}
+                          value={fi?.cards_in_hand ?? ''}
+                          onChange={e => setFormulaInputs(prev => ({ ...prev, [p.id]: { ...prev[p.id], cards_in_hand: e.target.value } }))}
+                          required
+                        />
+                        <div className="font-black font-mono text-base text-center flex-shrink-0" style={{ width: 48 }}>
+                          {previewScore !== null && !isNaN(previewScore)
+                            ? <span style={{ color: scoreColor(previewScore) }}>{fmtScore(previewScore)}</span>
+                            : <span style={{ color: border }}>—</span>}
                         </div>
                       </div>
                     ) : (
-                      <div className="flex-1">
-                        <label className="text-xs font-medium block mb-1" style={{ color: muted }}>Score</label>
-                        <input type="number" style={inputStyle}
-                          value={directInputs[p.id] ?? ''}
-                          onChange={e => setDirectInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
-                          required />
-                      </div>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        placeholder="0"
+                        style={{ ...inputStyle, flex: 1 }}
+                        value={directInputs[p.id] ?? ''}
+                        onChange={e => setDirectInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
+                        required
+                      />
                     )}
                   </div>
                 );
@@ -286,7 +345,7 @@ export default function GameView({ gameId, onBack }: Props) {
 
             {error && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{error}</p>}
             <button type="submit"
-              className="w-full py-3 rounded-xl font-black uppercase tracking-widest text-sm"
+              className="w-full py-4 rounded-xl font-black uppercase tracking-widest text-base"
               style={{ backgroundColor: '#e02020', color: '#fff' }}>
               Save Round
             </button>

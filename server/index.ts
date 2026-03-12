@@ -38,7 +38,17 @@ app.get('/api/games', (_req, res) => {
       (SELECT COUNT(*) FROM rounds WHERE game_id = g.id) AS round_count,
       (SELECT GROUP_CONCAT(p.name, ', ')
        FROM game_players gp JOIN players p ON p.id = gp.player_id
-       WHERE gp.game_id = g.id) AS player_names
+       WHERE gp.game_id = g.id) AS player_names,
+      CASE WHEN g.finished_at IS NOT NULL THEN (
+        SELECT p.name FROM players p
+        JOIN game_players gp ON gp.player_id = p.id
+        JOIN round_scores rs ON rs.player_id = p.id
+        JOIN rounds r ON r.id = rs.round_id
+        WHERE gp.game_id = g.id AND r.game_id = g.id
+        GROUP BY p.id
+        ORDER BY SUM(rs.score) DESC
+        LIMIT 1
+      ) END AS winner_name
     FROM games g
     ORDER BY g.started_at DESC
   `).all();
