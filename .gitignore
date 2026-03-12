@@ -17,6 +17,9 @@ dist-ssr
 *.db-shm
 *.db-wal
 
+# Claude
+.claude/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

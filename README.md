@@ -9,7 +9,6 @@
 [![sqlite](https://img.shields.io/badge/storage-sqlite-003b57?style=flat-square&logo=sqlite)](https://www.sqlite.org)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](#license)
 
-*no accounts. no cloud. no bullshit. just cards and scores.*
 
 </div>
 
@@ -60,7 +59,7 @@ score = cards_played_to_middle − (cards_in_ligretto_stack × 2)
 ### install
 
 ```bash
-git clone https://github.com/your-username/ligretto-scorekeeper
+git clone https://github.com/Sloth-on-meth/ligretto-scorekeeper
 cd ligretto-scorekeeper
 npm install
 ```
