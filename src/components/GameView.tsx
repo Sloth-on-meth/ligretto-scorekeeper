@@ -178,75 +178,83 @@ export default function GameView({ gameId, onBack }: Props) {
         </div>
       </div>
 
-      {/* Scoreboard — horizontal scroll on mobile */}
+      {/* Scoreboard — rounds as rows, players as columns */}
       {roundNumbers.length > 0 && (
         <div className="rounded-2xl overflow-hidden mb-8" style={{ border: `1px solid ${border}` }}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: `${Math.max(400, players.length * 80 + roundNumbers.length * 60)}px` }}>
-              <thead>
-                <tr style={{ backgroundColor: '#1a1a24' }}>
-                  <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-widest" style={{ color: muted }}>
-                    Player
-                  </th>
-                  {roundNumbers.map(r => (
-                    <th key={r} className="text-center py-3 px-2" style={{ color: muted, minWidth: 48 }}>
-                      <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-xs font-black uppercase tracking-wide">R{r}</span>
-                        {!game.finished_at && (
-                          <button onClick={() => deleteRound(roundIdMap[r])}
-                            className="text-xs leading-none transition-colors"
-                            style={{ color: border }}
-                            title="Delete round"
-                            onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                            onMouseLeave={e => (e.currentTarget.style.color = border)}>
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    </th>
-                  ))}
-                  <th className="text-right py-3 px-4 text-xs font-black uppercase tracking-widest" style={{ color: muted }}>
-                    Total
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ backgroundColor: '#1a1a24' }}>
+                <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-widest" style={{ color: muted, width: 64 }}>
+                  Round
+                </th>
                 {sortedPlayers.map((p, rank) => {
                   const c = PLAYER_COLORS[playerColorIndex[p.id]];
                   return (
-                    <tr key={p.id} style={{ borderTop: `1px solid ${border}` }}>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <div className="rounded-md font-black text-xs flex items-center justify-center flex-shrink-0"
-                            style={{ width: 26, height: 34, backgroundColor: c.bg, color: c.text, boxShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>
-                            {rank === 0 ? '🏆' : rank + 1}
-                          </div>
-                          <span className="font-bold">{p.name}</span>
+                    <th key={p.id} className="text-center py-3 px-3">
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="rounded-md font-black text-xs flex items-center justify-center"
+                          style={{ width: 26, height: 34, backgroundColor: c.bg, color: c.text, boxShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>
+                          {rank === 0 && roundNumbers.length === (rounds.length / players.length | 0) ? '🏆' : rank + 1}
                         </div>
-                      </td>
-                      {roundNumbers.map(r => {
-                        const s = scoreMap[r]?.[p.id];
-                        return (
-                          <td key={r} className="py-3 px-2 text-center font-mono text-sm">
-                            {s ? (
-                              <span style={{ color: scoreColor(s.score) }}
-                                title={s.cards_played != null ? `Played: ${s.cards_played}, In hand: ${s.cards_in_hand}` : undefined}>
-                                {fmtScore(s.score)}
-                              </span>
-                            ) : <span style={{ color: border }}>—</span>}
-                          </td>
-                        );
-                      })}
-                      <td className="py-3 px-4 text-right font-black text-lg"
-                        style={{ color: c.bg === '#c89800' ? '#d4a500' : c.bg }}>
-                        {totals[p.id] ?? 0}
-                      </td>
-                    </tr>
+                        <span className="font-bold text-xs">{p.name}</span>
+                      </div>
+                    </th>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+                {!game.finished_at && <th style={{ width: 32 }} />}
+              </tr>
+            </thead>
+            <tbody>
+              {roundNumbers.map(r => (
+                <tr key={r} style={{ borderTop: `1px solid ${border}` }}>
+                  <td className="py-2.5 px-4 font-black text-xs uppercase tracking-wide" style={{ color: muted }}>
+                    R{r}
+                  </td>
+                  {sortedPlayers.map(p => {
+                    const s = scoreMap[r]?.[p.id];
+                    return (
+                      <td key={p.id} className="py-2.5 px-3 text-center font-mono font-bold text-sm">
+                        {s ? (
+                          <span style={{ color: scoreColor(s.score) }}
+                            title={s.cards_played != null ? `Played: ${s.cards_played}, In hand: ${s.cards_in_hand}` : undefined}>
+                            {fmtScore(s.score)}
+                          </span>
+                        ) : <span style={{ color: border }}>—</span>}
+                      </td>
+                    );
+                  })}
+                  {!game.finished_at && (
+                    <td className="py-2.5 pr-3 text-center">
+                      <button onClick={() => deleteRound(roundIdMap[r])}
+                        className="text-xs transition-colors"
+                        style={{ color: border }}
+                        title="Delete round"
+                        onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                        onMouseLeave={e => (e.currentTarget.style.color = border)}>
+                        ✕
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+              {/* Totals row */}
+              <tr style={{ borderTop: `2px solid ${border}`, backgroundColor: '#1a1a24' }}>
+                <td className="py-3 px-4 font-black text-xs uppercase tracking-wide" style={{ color: muted }}>
+                  Total
+                </td>
+                {sortedPlayers.map(p => {
+                  const c = PLAYER_COLORS[playerColorIndex[p.id]];
+                  return (
+                    <td key={p.id} className="py-3 px-3 text-center font-black text-base"
+                      style={{ color: c.bg === '#c89800' ? '#d4a500' : c.bg }}>
+                      {totals[p.id] ?? 0}
+                    </td>
+                  );
+                })}
+                {!game.finished_at && <td />}
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
 
