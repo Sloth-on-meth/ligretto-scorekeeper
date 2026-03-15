@@ -403,6 +403,10 @@ app.get('/api/stats', (_req, res) => {
       COALESCE(gc.games_played, 0) AS games_played,
       COALESCE(rs.rounds_played, 0) AS rounds_played,
       COALESCE(rs.total_score, 0) AS total_score,
+      CASE
+        WHEN COALESCE(gc.games_played, 0) = 0 THEN 0
+        ELSE ROUND(COALESCE(rs.total_score, 0) * 1.0 / gc.games_played, 1)
+      END AS avg_score_per_game,
       COALESCE(rs.avg_score_per_round, 0) AS avg_score_per_round,
       rs.best_round AS best_round,
       rs.worst_round AS worst_round

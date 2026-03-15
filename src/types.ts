@@ -36,6 +36,7 @@ export interface PlayerStats {
   games_played: number;
   rounds_played: number;
   total_score: number;
+  avg_score_per_game: number;
   avg_score_per_round: number;
   best_round: number | null;
   worst_round: number | null;

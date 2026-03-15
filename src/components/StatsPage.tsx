@@ -31,7 +31,7 @@ export default function StatsPage() {
             <table className="w-full min-w-[760px]">
               <thead>
                 <tr style={{ backgroundColor: '#171720' }}>
-                  {['Rank', 'Player', 'Total', 'Games', 'Rounds', 'Avg/Rd', 'Best', 'Worst'].map(label => (
+                  {['Rank', 'Player', 'Total', 'Games', 'Rounds', 'Avg/Game', 'Avg/Rd', 'Best', 'Worst'].map(label => (
                     <th
                       key={label}
                       className="px-4 py-3 text-left text-xs font-black uppercase tracking-widest"
@@ -64,6 +64,7 @@ export default function StatsPage() {
                       <td className="px-4 py-4 font-black text-2xl whitespace-nowrap">{s.total_score}</td>
                       <td className="px-4 py-4 text-sm font-bold whitespace-nowrap">{s.games_played}</td>
                       <td className="px-4 py-4 text-sm font-bold whitespace-nowrap">{s.rounds_played}</td>
+                      <td className="px-4 py-4 text-sm font-bold whitespace-nowrap">{s.avg_score_per_game}</td>
                       <td className="px-4 py-4 text-sm font-bold whitespace-nowrap">{s.avg_score_per_round}</td>
                       <td className="px-4 py-4 text-sm font-black whitespace-nowrap" style={{ color: POSITIVE }}>
                         {formatSigned(s.best_round)}
