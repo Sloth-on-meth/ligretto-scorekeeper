@@ -8,6 +8,7 @@ export interface Game {
   id: number;
   started_at: string;
   finished_at: string | null;
+  deleted_at: string | null;
   round_count?: number;
   player_names?: string;
   winner_name?: string | null;

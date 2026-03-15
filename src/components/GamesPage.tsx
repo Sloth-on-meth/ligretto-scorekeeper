@@ -54,15 +54,18 @@ function parseImportedGame(text: string): ParsedImportGame {
 
 export default function GamesPage() {
   const [games, setGames] = useState<Game[]>([]);
+  const [trashedGames, setTrashedGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedPlayers, setSelectedPlayers] = useState<number[]>([]);
   const [activeGameId, setActiveGameId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState('');
+  const [showTrash, setShowTrash] = useState(false);
 
   const load = () => {
     api.games.list().then(setGames);
+    api.games.trash().then(setTrashedGames);
     api.players.list().then(setPlayers);
   };
 
@@ -91,7 +94,27 @@ export default function GamesPage() {
     }
   };
 
-  const deleteGame = async (id: number) => {
+  const trashGame = async (id: number) => {
+    const confirmed = window.confirm(
+      'ARE YOU ABSOLUTELY SURE YOU WANT TO MOVE THIS GAME TO THE TRASH?\n\nYou can still restore it later.'
+    );
+    if (!confirmed) return;
+
+    await api.games.trashOne(id);
+    load();
+  };
+
+  const restoreGame = async (id: number) => {
+    await api.games.restore(id);
+    load();
+  };
+
+  const permanentlyDeleteGame = async (id: number) => {
+    const confirmed = window.confirm(
+      'ARE YOU ABSOLUTELY SURE YOU WANT TO PERMANENTLY DELETE?\n\nThis will permanently erase the game, all of its rounds, and all of its scores. This cannot be undone.'
+    );
+    if (!confirmed) return;
+
     await api.games.delete(id);
     load();
   };
@@ -224,13 +247,13 @@ export default function GamesPage() {
                   Open
                 </button>
                 <button
-                  onClick={() => deleteGame(g.id)}
+                  onClick={() => trashGame(g.id)}
                   className="text-xs font-medium transition-colors"
                   style={{ color: muted }}
                   onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
                   onMouseLeave={e => (e.currentTarget.style.color = muted)}
                 >
-                  Delete
+                  Trash
                 </button>
               </div>
             </div>
@@ -248,6 +271,65 @@ export default function GamesPage() {
             </div>
             <p className="text-sm mt-6">No games yet.</p>
           </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl p-5 mt-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest mb-1" style={{ color: muted }}>Trash</p>
+            <p className="text-sm" style={{ color: muted }}>
+              Deleted games stay here until you permanently remove them. Trashed games are excluded from stats.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowTrash(prev => !prev)}
+            className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wide"
+            style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
+          >
+            {showTrash ? 'Hide Trash' : `Open Trash (${trashedGames.length})`}
+          </button>
+        </div>
+
+        {showTrash && (
+          trashedGames.length > 0 ? (
+            <div className="space-y-2">
+              {trashedGames.map(g => (
+                <div key={g.id}
+                  className="rounded-xl px-4 py-3 flex items-center justify-between gap-4"
+                  style={{ backgroundColor: '#111118', border: `1px solid ${border}` }}
+                >
+                  <div>
+                    <div className="font-bold text-sm">Game #{g.id}</div>
+                    <p className="text-xs" style={{ color: muted }}>
+                      {g.player_names} · {g.round_count} rounds · deleted {g.deleted_at ? new Date(g.deleted_at).toLocaleString() : 'recently'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <button
+                      onClick={() => restoreGame(g.id)}
+                      className="text-xs font-black uppercase tracking-wide px-3 py-1.5 rounded-lg"
+                      style={{ backgroundColor: '#15502a', color: '#4ade80', border: '1px solid #1a6634' }}
+                    >
+                      Restore
+                    </button>
+                    <button
+                      onClick={() => permanentlyDeleteGame(g.id)}
+                      className="text-xs font-medium transition-colors"
+                      style={{ color: '#fca5a5' }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                      onMouseLeave={e => (e.currentTarget.style.color = '#fca5a5')}
+                    >
+                      Delete Permanently
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm" style={{ color: muted }}>Trash is empty.</p>
+          )
         )}
       </div>
     </div>

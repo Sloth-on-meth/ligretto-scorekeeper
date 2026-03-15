@@ -41,6 +41,35 @@ interface ImportedRound {
   scores: ImportedRoundScore[];
 }
 
+function getGames(includeDeleted: boolean) {
+  return db.prepare(`
+    SELECT g.*,
+      (SELECT COUNT(*) FROM rounds WHERE game_id = g.id) AS round_count,
+      (SELECT GROUP_CONCAT(p.name, ', ')
+       FROM game_players gp JOIN players p ON p.id = gp.player_id
+       WHERE gp.game_id = g.id) AS player_names,
+      CASE WHEN g.finished_at IS NOT NULL THEN (
+        SELECT p.name FROM players p
+        JOIN game_players gp ON gp.player_id = p.id
+        JOIN round_scores rs ON rs.player_id = p.id
+        JOIN rounds r ON r.id = rs.round_id
+        WHERE gp.game_id = g.id AND r.game_id = g.id
+        GROUP BY p.id
+        ORDER BY SUM(rs.score) DESC
+        LIMIT 1
+      ) END AS winner_name
+    FROM games g
+    WHERE g.deleted_at IS ${includeDeleted ? 'NOT' : ''} NULL
+    ORDER BY COALESCE(g.deleted_at, g.started_at) DESC, g.id DESC
+  `).all();
+}
+
+function getGameById(gameId: string | number) {
+  return db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as
+    | { id: number; finished_at: string | null; deleted_at: string | null }
+    | undefined;
+}
+
 // --- Players ---
 
 app.get('/api/players', (_req, res) => {
@@ -87,26 +116,11 @@ app.delete('/api/players/:id', (req, res) => {
 // --- Games ---
 
 app.get('/api/games', (_req, res) => {
-  const games = db.prepare(`
-    SELECT g.*,
-      (SELECT COUNT(*) FROM rounds WHERE game_id = g.id) AS round_count,
-      (SELECT GROUP_CONCAT(p.name, ', ')
-       FROM game_players gp JOIN players p ON p.id = gp.player_id
-       WHERE gp.game_id = g.id) AS player_names,
-      CASE WHEN g.finished_at IS NOT NULL THEN (
-        SELECT p.name FROM players p
-        JOIN game_players gp ON gp.player_id = p.id
-        JOIN round_scores rs ON rs.player_id = p.id
-        JOIN rounds r ON r.id = rs.round_id
-        WHERE gp.game_id = g.id AND r.game_id = g.id
-        GROUP BY p.id
-        ORDER BY SUM(rs.score) DESC
-        LIMIT 1
-      ) END AS winner_name
-    FROM games g
-    ORDER BY g.started_at DESC
-  `).all();
-  res.json(games);
+  res.json(getGames(false));
+});
+
+app.get('/api/games/trash', (_req, res) => {
+  res.json(getGames(true));
 });
 
 app.post('/api/games', (req, res) => {
@@ -239,12 +253,39 @@ app.post('/api/games/import', (req, res) => {
 });
 
 app.patch('/api/games/:id/finish', (req, res) => {
+  const game = getGameById(req.params.id);
+  if (!game) return res.status(404).json({ error: 'Game not found' });
+  if (game.deleted_at) return res.status(409).json({ error: 'Cannot finish a deleted game' });
+
   db.prepare("UPDATE games SET finished_at = datetime('now') WHERE id = ?").run(req.params.id);
-  const game = db.prepare('SELECT * FROM games WHERE id = ?').get(req.params.id);
-  res.json(game);
+  const updatedGame = getGameById(req.params.id);
+  res.json(updatedGame);
+});
+
+app.patch('/api/games/:id/trash', (req, res) => {
+  const game = getGameById(req.params.id);
+  if (!game) return res.status(404).json({ error: 'Game not found' });
+  if (game.deleted_at) return res.status(409).json({ error: 'Game is already in the trash' });
+
+  db.prepare("UPDATE games SET deleted_at = datetime('now') WHERE id = ?").run(req.params.id);
+  const updatedGame = getGameById(req.params.id);
+  res.json(updatedGame);
+});
+
+app.patch('/api/games/:id/restore', (req, res) => {
+  const game = getGameById(req.params.id);
+  if (!game) return res.status(404).json({ error: 'Game not found' });
+  if (!game.deleted_at) return res.status(409).json({ error: 'Game is not in the trash' });
+
+  db.prepare('UPDATE games SET deleted_at = NULL WHERE id = ?').run(req.params.id);
+  const updatedGame = getGameById(req.params.id);
+  res.json(updatedGame);
 });
 
 app.delete('/api/games/:id', (req, res) => {
+  const game = getGameById(req.params.id);
+  if (!game) return res.status(404).json({ error: 'Game not found' });
+
   db.prepare('DELETE FROM games WHERE id = ?').run(req.params.id);
   res.status(204).end();
 });
@@ -252,7 +293,7 @@ app.delete('/api/games/:id', (req, res) => {
 // --- Game detail (players + rounds + scores) ---
 
 app.get('/api/games/:id', (req, res) => {
-  const game = db.prepare('SELECT * FROM games WHERE id = ?').get(req.params.id);
+  const game = getGameById(req.params.id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
 
   const players = db.prepare(`
@@ -276,6 +317,10 @@ app.get('/api/games/:id', (req, res) => {
 // --- Rounds ---
 
 app.post('/api/games/:id/rounds', (req, res) => {
+  const game = getGameById(req.params.id);
+  if (!game) return res.status(404).json({ error: 'Game not found' });
+  if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });
+
   const { scores } = req.body;
   // scores: [{ player_id, score, cards_played?, cards_in_hand? }]
   if (!Array.isArray(scores) || scores.length === 0) {
@@ -316,6 +361,10 @@ app.post('/api/games/:id/rounds', (req, res) => {
 });
 
 app.delete('/api/games/:gameId/rounds/:roundId', (req, res) => {
+  const game = getGameById(req.params.gameId);
+  if (!game) return res.status(404).json({ error: 'Game not found' });
+  if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });
+
   db.prepare('DELETE FROM rounds WHERE id = ? AND game_id = ?').run(
     req.params.roundId,
     req.params.gameId
@@ -328,20 +377,25 @@ app.delete('/api/games/:gameId/rounds/:roundId', (req, res) => {
 app.get('/api/stats', (_req, res) => {
   const stats = db.prepare(`
     WITH game_counts AS (
-      SELECT player_id, COUNT(*) AS games_played
-      FROM game_players
-      GROUP BY player_id
+      SELECT gp.player_id, COUNT(*) AS games_played
+      FROM game_players gp
+      JOIN games g ON g.id = gp.game_id
+      WHERE g.deleted_at IS NULL
+      GROUP BY gp.player_id
     ),
     round_stats AS (
       SELECT
-        player_id,
+        rs.player_id,
         COUNT(*) AS rounds_played,
-        COALESCE(SUM(score), 0) AS total_score,
-        COALESCE(ROUND(AVG(score), 1), 0) AS avg_score_per_round,
-        MAX(score) AS best_round,
-        MIN(score) AS worst_round
-      FROM round_scores
-      GROUP BY player_id
+        COALESCE(SUM(rs.score), 0) AS total_score,
+        COALESCE(ROUND(AVG(rs.score), 1), 0) AS avg_score_per_round,
+        MAX(rs.score) AS best_round,
+        MIN(rs.score) AS worst_round
+      FROM round_scores rs
+      JOIN rounds r ON r.id = rs.round_id
+      JOIN games g ON g.id = r.game_id
+      WHERE g.deleted_at IS NULL
+      GROUP BY rs.player_id
     )
     SELECT
       p.id,

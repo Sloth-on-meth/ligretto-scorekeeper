@@ -23,11 +23,14 @@ export const api = {
   },
   games: {
     list: () => req<Game[]>('/games'),
+    trash: () => req<Game[]>('/games/trash'),
     create: (player_ids: number[]) => req<Game>('/games', { method: 'POST', body: JSON.stringify({ player_ids }) }),
     import: (player_names: string[], rounds: { scores: { player_name: string; score: number }[] }[]) =>
       req<Game>('/games/import', { method: 'POST', body: JSON.stringify({ player_names, rounds }) }),
     get: (id: number) => req<GameDetail>(`/games/${id}`),
     finish: (id: number) => req<Game>(`/games/${id}/finish`, { method: 'PATCH' }),
+    trashOne: (id: number) => req<Game>(`/games/${id}/trash`, { method: 'PATCH' }),
+    restore: (id: number) => req<Game>(`/games/${id}/restore`, { method: 'PATCH' }),
     delete: (id: number) => req<void>(`/games/${id}`, { method: 'DELETE' }),
   },
   rounds: {

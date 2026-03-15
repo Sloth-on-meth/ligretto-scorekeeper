@@ -56,4 +56,14 @@ db.exec(`
   END;
 `);
 
+const hasDeletedAt = db.prepare(`
+  SELECT 1
+  FROM pragma_table_info('games')
+  WHERE name = 'deleted_at'
+`).get();
+
+if (!hasDeletedAt) {
+  db.exec("ALTER TABLE games ADD COLUMN deleted_at TEXT");
+}
+
 export default db;
