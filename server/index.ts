@@ -32,6 +32,15 @@ function normalizePlayerName(value: unknown): string {
     .join(' ');
 }
 
+interface ImportedRoundScore {
+  player_name: string;
+  score: number;
+}
+
+interface ImportedRound {
+  scores: ImportedRoundScore[];
+}
+
 // --- Players ---
 
 app.get('/api/players', (_req, res) => {
@@ -133,6 +142,99 @@ app.post('/api/games', (req, res) => {
     res.status(201).json(game);
   } catch {
     res.status(500).json({ error: 'Failed to create game' });
+  }
+});
+
+app.post('/api/games/import', (req, res) => {
+  const rawPlayers = Array.isArray(req.body?.player_names) ? req.body.player_names : null;
+  const rawRounds = Array.isArray(req.body?.rounds) ? req.body.rounds : null;
+
+  if (!rawPlayers || !rawRounds) {
+    return res.status(400).json({ error: 'Player names and rounds are required' });
+  }
+
+  const playerNames = rawPlayers
+    .map(normalizePlayerName)
+    .filter(Boolean);
+
+  if (playerNames.length < 2) {
+    return res.status(400).json({ error: 'At least 2 players are required' });
+  }
+
+  if (new Set(playerNames).size !== playerNames.length) {
+    return res.status(400).json({ error: 'Player names must be unique' });
+  }
+
+  if (rawRounds.length === 0) {
+    return res.status(400).json({ error: 'At least 1 round is required' });
+  }
+
+  const rounds = rawRounds as ImportedRound[];
+  for (const round of rounds) {
+    if (!Array.isArray(round?.scores) || round.scores.length !== playerNames.length) {
+      return res.status(400).json({ error: 'Each round must include one score for each player' });
+    }
+
+    const roundNames = round.scores.map(score => normalizePlayerName(score?.player_name));
+    if (new Set(roundNames).size !== playerNames.length) {
+      return res.status(400).json({ error: 'Each round must contain each player exactly once' });
+    }
+
+    for (const score of round.scores) {
+      const playerName = normalizePlayerName(score?.player_name);
+      if (!playerNames.includes(playerName) || !Number.isInteger(score?.score)) {
+        return res.status(400).json({ error: 'Imported scores must use known players and integer values' });
+      }
+    }
+  }
+
+  try {
+    const importGame = db.transaction(() => {
+      const selectPlayer = db.prepare('SELECT * FROM players WHERE name = ?');
+      const insertPlayer = db.prepare('INSERT INTO players (name) VALUES (?)');
+      const insertGame = db.prepare('INSERT INTO games DEFAULT VALUES');
+      const insertGamePlayer = db.prepare('INSERT INTO game_players (game_id, player_id) VALUES (?, ?)');
+      const insertRound = db.prepare('INSERT INTO rounds (game_id, round_number) VALUES (?, ?)');
+      const insertRoundScore = db.prepare(
+        'INSERT INTO round_scores (round_id, player_id, cards_played, cards_in_hand, score) VALUES (?, ?, ?, ?, ?)'
+      );
+
+      const playersByName = new Map<string, { id: number }>();
+      for (const playerName of playerNames) {
+        let player = selectPlayer.get(playerName) as { id: number } | undefined;
+        if (!player) {
+          const result = insertPlayer.run(playerName);
+          player = { id: Number(result.lastInsertRowid) };
+        }
+        playersByName.set(playerName, player);
+      }
+
+      const gameResult = insertGame.run();
+      const gameId = Number(gameResult.lastInsertRowid);
+
+      for (const playerName of playerNames) {
+        const player = playersByName.get(playerName)!;
+        insertGamePlayer.run(gameId, player.id);
+      }
+
+      for (const [index, round] of rounds.entries()) {
+        const roundResult = insertRound.run(gameId, index + 1);
+        const roundId = Number(roundResult.lastInsertRowid);
+
+        for (const score of round.scores) {
+          const player = playersByName.get(normalizePlayerName(score.player_name))!;
+          insertRoundScore.run(roundId, player.id, null, null, score.score);
+        }
+      }
+
+      db.prepare("UPDATE games SET finished_at = datetime('now') WHERE id = ?").run(gameId);
+      return db.prepare('SELECT * FROM games WHERE id = ?').get(gameId);
+    });
+
+    const game = importGame();
+    res.status(201).json(game);
+  } catch {
+    res.status(500).json({ error: 'Failed to import game' });
   }
 });
 

@@ -4,12 +4,62 @@ import type { Game, Player } from '../types';
 import GameView from './GameView';
 import { PLAYER_COLORS, surface, border, muted } from '../theme';
 
+interface ParsedImportGame {
+  playerNames: string[];
+  rounds: { scores: { player_name: string; score: number }[] }[];
+}
+
+function parseImportedGame(text: string): ParsedImportGame {
+  const lines = text
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    throw new Error('Paste a header row and at least one round');
+  }
+
+  const playerNames = lines[0]
+    .split('\t')
+    .map(name => name.trim())
+    .filter(Boolean);
+
+  if (playerNames.length < 2) {
+    throw new Error('Header row must contain at least 2 player names');
+  }
+
+  const expectedColumns = playerNames.length;
+  const rounds = lines.slice(1).map((line, index) => {
+    const cells = line.split('\t').map(cell => cell.trim());
+    if (cells.length !== expectedColumns) {
+      throw new Error(`Round ${index + 1} has ${cells.length} columns; expected ${expectedColumns}`);
+    }
+
+    return {
+      scores: cells.map((cell, cellIndex) => {
+        if (!/^-?\d+$/.test(cell)) {
+          throw new Error(`Round ${index + 1}, ${playerNames[cellIndex]} must be a whole number`);
+        }
+
+        return {
+          player_name: playerNames[cellIndex],
+          score: Number(cell),
+        };
+      }),
+    };
+  });
+
+  return { playerNames, rounds };
+}
+
 export default function GamesPage() {
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedPlayers, setSelectedPlayers] = useState<number[]>([]);
   const [activeGameId, setActiveGameId] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [importText, setImportText] = useState('');
+  const [importError, setImportError] = useState('');
 
   const load = () => {
     api.games.list().then(setGames);
@@ -44,6 +94,20 @@ export default function GamesPage() {
   const deleteGame = async (id: number) => {
     await api.games.delete(id);
     load();
+  };
+
+  const importGame = async () => {
+    setImportError('');
+
+    try {
+      const parsed = parseImportedGame(importText);
+      const game = await api.games.import(parsed.playerNames, parsed.rounds);
+      setImportText('');
+      load();
+      setActiveGameId(game.id);
+    } catch (err) {
+      setImportError((err as Error).message);
+    }
   };
 
   return (
@@ -94,6 +158,29 @@ export default function GamesPage() {
             </button>
           </>
         )}
+      </div>
+
+      <div className="rounded-2xl p-5 mb-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+        <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: muted }}>Import Finished Game</p>
+        <p className="text-sm mb-4" style={{ color: muted }}>
+          Paste tab-separated data with player names in the first row and round scores below. Missing players will be created automatically.
+        </p>
+        <textarea
+          value={importText}
+          onChange={e => setImportText(e.target.value)}
+          placeholder={'sam\tamber\tsofie\n14\t25\t10\n11\t11\t16'}
+          className="w-full rounded-xl px-4 py-3 text-sm font-medium resize-y min-h-44 focus:outline-none mb-4"
+          style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
+        />
+        {importError && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{importError}</p>}
+        <button
+          onClick={importGame}
+          disabled={!importText.trim()}
+          className="px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
+          style={{ backgroundColor: '#e02020', color: '#fff' }}
+        >
+          Import Game
+        </button>
       </div>
 
       {/* Games list */}

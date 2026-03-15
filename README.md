@@ -27,6 +27,7 @@ a dead-simple webapp you run locally to track [Ligretto](https://en.wikipedia.or
 ⚡  two input modes         formula (played − hand×2) or direct score entry
 📈  player stats            lifetime totals, avg per round, best/worst
 📤  csv export              download any game as a spreadsheet
+📥  tabular import          paste TSV scores to import a finished game
 📱  mobile-friendly         big tap targets, numeric keyboard on phones
 🗑️  full edit control       delete rounds or entire games at any time
 💾  local sqlite            one file, zero dependencies on the internet
