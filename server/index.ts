@@ -53,6 +53,10 @@ interface ImportedRound {
   scores: ImportedRoundScore[];
 }
 
+function getRouteParam(value: string | string[]) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function base64UrlEncode(value: string) {
   return Buffer.from(value, 'utf8').toString('base64url');
 }
@@ -386,47 +390,52 @@ app.post('/api/games/import', requireAdmin, (req, res) => {
 });
 
 app.patch('/api/games/:id/finish', requireAdmin, (req, res) => {
-  const game = getGameById(req.params.id);
+  const gameId = getRouteParam(req.params.id);
+  const game = getGameById(gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Cannot finish a deleted game' });
 
-  db.prepare("UPDATE games SET finished_at = datetime('now') WHERE id = ?").run(req.params.id);
-  const updatedGame = getGameById(req.params.id);
+  db.prepare("UPDATE games SET finished_at = datetime('now') WHERE id = ?").run(gameId);
+  const updatedGame = getGameById(gameId);
   res.json(updatedGame);
 });
 
 app.patch('/api/games/:id/trash', requireAdmin, (req, res) => {
-  const game = getGameById(req.params.id);
+  const gameId = getRouteParam(req.params.id);
+  const game = getGameById(gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Game is already in the trash' });
 
-  db.prepare("UPDATE games SET deleted_at = datetime('now') WHERE id = ?").run(req.params.id);
-  const updatedGame = getGameById(req.params.id);
+  db.prepare("UPDATE games SET deleted_at = datetime('now') WHERE id = ?").run(gameId);
+  const updatedGame = getGameById(gameId);
   res.json(updatedGame);
 });
 
 app.patch('/api/games/:id/restore', requireAdmin, (req, res) => {
-  const game = getGameById(req.params.id);
+  const gameId = getRouteParam(req.params.id);
+  const game = getGameById(gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (!game.deleted_at) return res.status(409).json({ error: 'Game is not in the trash' });
 
-  db.prepare('UPDATE games SET deleted_at = NULL WHERE id = ?').run(req.params.id);
-  const updatedGame = getGameById(req.params.id);
+  db.prepare('UPDATE games SET deleted_at = NULL WHERE id = ?').run(gameId);
+  const updatedGame = getGameById(gameId);
   res.json(updatedGame);
 });
 
 app.delete('/api/games/:id', requireAdmin, (req, res) => {
-  const game = getGameById(req.params.id);
+  const gameId = getRouteParam(req.params.id);
+  const game = getGameById(gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });
 
-  db.prepare('DELETE FROM games WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM games WHERE id = ?').run(gameId);
   res.status(204).end();
 });
 
 // --- Game detail (players + rounds + scores) ---
 
 app.get('/api/games/:id', (req, res) => {
-  const game = getGameById(req.params.id);
+  const gameId = getRouteParam(req.params.id);
+  const game = getGameById(gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });
 
   const players = db.prepare(`
@@ -434,7 +443,7 @@ app.get('/api/games/:id', (req, res) => {
     JOIN game_players gp ON gp.player_id = p.id
     WHERE gp.game_id = ?
     ORDER BY p.name
-  `).all(req.params.id);
+  `).all(gameId);
 
   const rounds = db.prepare(`
     SELECT r.*, rs.player_id, rs.cards_played, rs.cards_in_hand, rs.score
@@ -442,7 +451,7 @@ app.get('/api/games/:id', (req, res) => {
     JOIN round_scores rs ON rs.round_id = r.id
     WHERE r.game_id = ?
     ORDER BY r.round_number, rs.player_id
-  `).all(req.params.id);
+  `).all(gameId);
 
   res.json({ game, players, rounds });
 });
@@ -450,7 +459,8 @@ app.get('/api/games/:id', (req, res) => {
 // --- Rounds ---
 
 app.post('/api/games/:id/rounds', requireAdmin, (req, res) => {
-  const game = getGameById(req.params.id);
+  const gameId = getRouteParam(req.params.id);
+  const game = getGameById(gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });
 
@@ -460,7 +470,6 @@ app.post('/api/games/:id/rounds', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Scores required' });
   }
 
-  const gameId = req.params.id;
   const lastRound = db.prepare(
     'SELECT MAX(round_number) as max FROM rounds WHERE game_id = ?'
   ).get(gameId) as { max: number | null };
@@ -494,13 +503,15 @@ app.post('/api/games/:id/rounds', requireAdmin, (req, res) => {
 });
 
 app.delete('/api/games/:gameId/rounds/:roundId', requireAdmin, (req, res) => {
-  const game = getGameById(req.params.gameId);
+  const gameId = getRouteParam(req.params.gameId);
+  const roundId = getRouteParam(req.params.roundId);
+  const game = getGameById(gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });
 
   db.prepare('DELETE FROM rounds WHERE id = ? AND game_id = ?').run(
-    req.params.roundId,
-    req.params.gameId
+    roundId,
+    gameId
   );
   res.status(204).end();
 });
