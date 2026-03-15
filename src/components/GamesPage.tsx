@@ -9,6 +9,10 @@ interface ParsedImportGame {
   rounds: { scores: { player_name: string; score: number }[] }[];
 }
 
+interface Props {
+  canEdit: boolean;
+}
+
 function parseImportedGame(text: string): ParsedImportGame {
   const lines = text
     .split(/\r?\n/)
@@ -52,7 +56,7 @@ function parseImportedGame(text: string): ParsedImportGame {
   return { playerNames, rounds };
 }
 
-export default function GamesPage() {
+export default function GamesPage({ canEdit }: Props) {
   const [games, setGames] = useState<Game[]>([]);
   const [trashedGames, setTrashedGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -72,7 +76,7 @@ export default function GamesPage() {
   useEffect(() => { load(); }, []);
 
   if (activeGameId !== null) {
-    return <GameView gameId={activeGameId} onBack={() => { setActiveGameId(null); load(); }} />;
+    return <GameView gameId={activeGameId} canEdit={canEdit} onBack={() => { setActiveGameId(null); load(); }} />;
   }
 
   const togglePlayer = (id: number) => {
@@ -141,7 +145,9 @@ export default function GamesPage() {
       <div className="rounded-2xl p-5 mb-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
         <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: muted }}>New Game</p>
 
-        {players.length < 2 ? (
+        {!canEdit ? (
+          <p className="text-sm" style={{ color: muted }}>You&apos;re in read-only mode. Sign in to start a game.</p>
+        ) : players.length < 2 ? (
           <p className="text-sm" style={{ color: muted }}>Add at least 2 players first.</p>
         ) : (
           <>
@@ -183,28 +189,30 @@ export default function GamesPage() {
         )}
       </div>
 
-      <div className="rounded-2xl p-5 mb-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
-        <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: muted }}>Import Finished Game</p>
-        <p className="text-sm mb-4" style={{ color: muted }}>
-          Paste tab-separated data with player names in the first row and round scores below. Missing players will be created automatically.
-        </p>
-        <textarea
-          value={importText}
-          onChange={e => setImportText(e.target.value)}
-          placeholder={'sam\tamber\tsofie\n14\t25\t10\n11\t11\t16'}
-          className="w-full rounded-xl px-4 py-3 text-sm font-medium resize-y min-h-44 focus:outline-none mb-4"
-          style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
-        />
-        {importError && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{importError}</p>}
-        <button
-          onClick={importGame}
-          disabled={!importText.trim()}
-          className="px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
-          style={{ backgroundColor: '#e02020', color: '#fff' }}
-        >
-          Import Game
-        </button>
-      </div>
+      {canEdit && (
+        <div className="rounded-2xl p-5 mb-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+          <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: muted }}>Import Finished Game</p>
+          <p className="text-sm mb-4" style={{ color: muted }}>
+            Paste tab-separated data with player names in the first row and round scores below. Missing players will be created automatically.
+          </p>
+          <textarea
+            value={importText}
+            onChange={e => setImportText(e.target.value)}
+            placeholder={'sam\tamber\tsofie\n14\t25\t10\n11\t11\t16'}
+            className="w-full rounded-xl px-4 py-3 text-sm font-medium resize-y min-h-44 focus:outline-none mb-4"
+            style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
+          />
+          {importError && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{importError}</p>}
+          <button
+            onClick={importGame}
+            disabled={!importText.trim()}
+            className="px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
+            style={{ backgroundColor: '#e02020', color: '#fff' }}
+          >
+            Import Game
+          </button>
+        </div>
+      )}
 
       {/* Games list */}
       <div className="space-y-2">
@@ -246,15 +254,17 @@ export default function GamesPage() {
                 >
                   Open
                 </button>
-                <button
-                  onClick={() => trashGame(g.id)}
-                  className="text-xs font-medium transition-colors"
-                  style={{ color: muted }}
-                  onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                  onMouseLeave={e => (e.currentTarget.style.color = muted)}
-                >
-                  Trash
-                </button>
+                {canEdit && (
+                  <button
+                    onClick={() => trashGame(g.id)}
+                    className="text-xs font-medium transition-colors"
+                    style={{ color: muted }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                    onMouseLeave={e => (e.currentTarget.style.color = muted)}
+                  >
+                    Trash
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -274,64 +284,66 @@ export default function GamesPage() {
         )}
       </div>
 
-      <div className="rounded-2xl p-5 mt-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div>
-            <p className="text-xs font-black uppercase tracking-widest mb-1" style={{ color: muted }}>Trash</p>
-            <p className="text-sm" style={{ color: muted }}>
-              Deleted games stay here until you permanently remove them. Trashed games are excluded from stats.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowTrash(prev => !prev)}
-            className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wide"
-            style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
-          >
-            {showTrash ? 'Hide Trash' : `Open Trash (${trashedGames.length})`}
-          </button>
-        </div>
-
-        {showTrash && (
-          trashedGames.length > 0 ? (
-            <div className="space-y-2">
-              {trashedGames.map(g => (
-                <div key={g.id}
-                  className="rounded-xl px-4 py-3 flex items-center justify-between gap-4"
-                  style={{ backgroundColor: '#111118', border: `1px solid ${border}` }}
-                >
-                  <div>
-                    <div className="font-bold text-sm">Game #{g.id}</div>
-                    <p className="text-xs" style={{ color: muted }}>
-                      {g.player_names} · {g.round_count} rounds · deleted {g.deleted_at ? new Date(g.deleted_at).toLocaleString() : 'recently'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <button
-                      onClick={() => restoreGame(g.id)}
-                      className="text-xs font-black uppercase tracking-wide px-3 py-1.5 rounded-lg"
-                      style={{ backgroundColor: '#15502a', color: '#4ade80', border: '1px solid #1a6634' }}
-                    >
-                      Restore
-                    </button>
-                    <button
-                      onClick={() => permanentlyDeleteGame(g.id)}
-                      className="text-xs font-medium transition-colors"
-                      style={{ color: '#fca5a5' }}
-                      onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                      onMouseLeave={e => (e.currentTarget.style.color = '#fca5a5')}
-                    >
-                      Delete Permanently
-                    </button>
-                  </div>
-                </div>
-              ))}
+      {canEdit && (
+        <div className="rounded-2xl p-5 mt-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest mb-1" style={{ color: muted }}>Trash</p>
+              <p className="text-sm" style={{ color: muted }}>
+                Deleted games stay here until you permanently remove them. Trashed games are excluded from stats.
+              </p>
             </div>
-          ) : (
-            <p className="text-sm" style={{ color: muted }}>Trash is empty.</p>
-          )
-        )}
-      </div>
+            <button
+              type="button"
+              onClick={() => setShowTrash(prev => !prev)}
+              className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wide"
+              style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
+            >
+              {showTrash ? 'Hide Trash' : `Open Trash (${trashedGames.length})`}
+            </button>
+          </div>
+
+          {showTrash && (
+            trashedGames.length > 0 ? (
+              <div className="space-y-2">
+                {trashedGames.map(g => (
+                  <div key={g.id}
+                    className="rounded-xl px-4 py-3 flex items-center justify-between gap-4"
+                    style={{ backgroundColor: '#111118', border: `1px solid ${border}` }}
+                  >
+                    <div>
+                      <div className="font-bold text-sm">Game #{g.id}</div>
+                      <p className="text-xs" style={{ color: muted }}>
+                        {g.player_names} · {g.round_count} rounds · deleted {g.deleted_at ? new Date(g.deleted_at).toLocaleString() : 'recently'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <button
+                        onClick={() => restoreGame(g.id)}
+                        className="text-xs font-black uppercase tracking-wide px-3 py-1.5 rounded-lg"
+                        style={{ backgroundColor: '#15502a', color: '#4ade80', border: '1px solid #1a6634' }}
+                      >
+                        Restore
+                      </button>
+                      <button
+                        onClick={() => permanentlyDeleteGame(g.id)}
+                        className="text-xs font-medium transition-colors"
+                        style={{ color: '#fca5a5' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                        onMouseLeave={e => (e.currentTarget.style.color = '#fca5a5')}
+                      >
+                        Delete Permanently
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm" style={{ color: muted }}>Trash is empty.</p>
+            )
+          )}
+        </div>
+      )}
     </div>
   );
 }

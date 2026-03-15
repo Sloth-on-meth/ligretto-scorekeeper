@@ -28,6 +28,7 @@ a dead-simple webapp you run locally to track [Ligretto](https://en.wikipedia.or
 📈  player stats            lifetime totals, avg per round, best/worst
 📤  csv export              download any game as a spreadsheet
 📥  tabular import          paste TSV scores to import a finished game
+🔐  read-only by default    sign in to make changes
 📱  mobile-friendly         big tap targets, numeric keyboard on phones
 🗑️  full edit control       delete rounds or entire games at any time
 💾  local sqlite            one file, zero dependencies on the internet
@@ -75,6 +76,12 @@ open **http://localhost:5173** — that's it.
 
 the API runs on `:3001`, proxied by Vite. the database is created at `ligretto.db` on first run (git-ignored, yours forever).
 
+by default, logged-out users can browse everything in read-only mode. to make changes, sign in with the admin password. unless you override it, the default password is:
+
+```text
+ligretto-admin
+```
+
 ### docker
 
 ```bash
@@ -84,6 +91,14 @@ docker compose up -d --build
 open **http://localhost:3001**.
 
 the app runs as a single container that serves both the frontend and API. sqlite data is stored in a named Docker volume so it survives container rebuilds and image updates.
+
+you can override the admin password and session secret with environment variables:
+
+```bash
+AUTH_PASSWORD=your-password
+SESSION_SECRET=your-random-secret
+docker compose up -d --build
+```
 
 to update after pulling new repo changes:
 

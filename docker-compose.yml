@@ -8,6 +8,8 @@ services:
     environment:
       PORT: 3001
       DB_PATH: /data/ligretto.db
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-ligretto-admin}
+      SESSION_SECRET: ${SESSION_SECRET:-change-this-session-secret}
     volumes:
       - ligretto_data:/data
     restart: unless-stopped
