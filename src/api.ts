@@ -1,9 +1,10 @@
-import type { Game, GameDetail, Player, PlayerStats } from './types';
+import type { AuthSession, Game, GameDetail, Player, PlayerStats } from './types';
 
 const BASE = '/api';
 
 async function req<T>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(BASE + url, {
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     ...opts,
   });
@@ -16,6 +17,11 @@ async function req<T>(url: string, opts?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  auth: {
+    session: () => req<AuthSession>('/auth/session'),
+    login: (password: string) => req<AuthSession>('/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
+    logout: () => req<AuthSession>('/auth/logout', { method: 'POST' }),
+  },
   players: {
     list: () => req<Player[]>('/players'),
     create: (name: string) => req<Player>('/players', { method: 'POST', body: JSON.stringify({ name }) }),

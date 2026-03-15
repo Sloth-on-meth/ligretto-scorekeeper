@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -8,10 +9,21 @@ import db from './db.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(__dirname, '..', 'dist');
 const indexHtmlPath = path.join(distDir, 'index.html');
+const SESSION_COOKIE = 'ligretto_session';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD ?? 'ligretto-admin';
+const SESSION_SECRET = process.env.SESSION_SECRET ?? 'ligretto-dev-session-secret';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+type Role = 'admin';
+
+interface SessionPayload {
+  role: Role;
+  exp: number;
+}
 
 function normalizePlayerIds(value: unknown): number[] | null {
   if (!Array.isArray(value)) return null;
@@ -39,6 +51,94 @@ interface ImportedRoundScore {
 
 interface ImportedRound {
   scores: ImportedRoundScore[];
+}
+
+function base64UrlEncode(value: string) {
+  return Buffer.from(value, 'utf8').toString('base64url');
+}
+
+function base64UrlDecode(value: string) {
+  return Buffer.from(value, 'base64url').toString('utf8');
+}
+
+function signSession(data: string) {
+  return crypto.createHmac('sha256', SESSION_SECRET).update(data).digest('base64url');
+}
+
+function encodeSession(payload: SessionPayload) {
+  const data = base64UrlEncode(JSON.stringify(payload));
+  const signature = signSession(data);
+  return `${data}.${signature}`;
+}
+
+function parseCookies(header?: string) {
+  if (!header) return {};
+
+  return header.split(';').reduce<Record<string, string>>((cookies, part) => {
+    const [rawName, ...rawValue] = part.trim().split('=');
+    if (!rawName) return cookies;
+    cookies[rawName] = decodeURIComponent(rawValue.join('='));
+    return cookies;
+  }, {});
+}
+
+function decodeSession(token?: string): SessionPayload | null {
+  if (!token) return null;
+
+  const [data, signature] = token.split('.');
+  if (!data || !signature) return null;
+
+  const expectedSignature = signSession(data);
+  const provided = Buffer.from(signature, 'utf8');
+  const expected = Buffer.from(expectedSignature, 'utf8');
+  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(data)) as SessionPayload;
+    if (payload.exp <= Date.now()) return null;
+    if (payload.role !== 'admin') return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function getSession(req: express.Request) {
+  const cookies = parseCookies(req.headers.cookie);
+  return decodeSession(cookies[SESSION_COOKIE]);
+}
+
+function setSessionCookie(res: express.Response, payload: SessionPayload) {
+  const token = encodeSession(payload);
+  const cookie = [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+  ].join('; ');
+  res.setHeader('Set-Cookie', cookie);
+}
+
+function clearSessionCookie(res: express.Response) {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const session = getSession(req);
+  if (!session || session.role !== 'admin') {
+    return res.status(401).json({ error: 'Sign in required' });
+  }
+  next();
+}
+
+function passwordsMatch(input: string, expected: string) {
+  const inputBuffer = Buffer.from(input, 'utf8');
+  const expectedBuffer = Buffer.from(expected, 'utf8');
+  if (inputBuffer.length !== expectedBuffer.length) return false;
+  return crypto.timingSafeEqual(inputBuffer, expectedBuffer);
 }
 
 function getGames(includeDeleted: boolean) {
@@ -70,6 +170,39 @@ function getGameById(gameId: string | number) {
     | undefined;
 }
 
+// --- Auth ---
+
+app.get('/api/auth/session', (req, res) => {
+  const session = getSession(req);
+  res.json({
+    authenticated: Boolean(session),
+    role: session?.role ?? null,
+  });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!password) {
+    return res.status(400).json({ error: 'Password is required' });
+  }
+
+  if (!passwordsMatch(password, AUTH_PASSWORD)) {
+    return res.status(401).json({ error: 'Invalid password' });
+  }
+
+  const payload: SessionPayload = {
+    role: 'admin',
+    exp: Date.now() + SESSION_TTL_MS,
+  };
+  setSessionCookie(res, payload);
+  res.json({ authenticated: true, role: payload.role });
+});
+
+app.post('/api/auth/logout', (_req, res) => {
+  clearSessionCookie(res);
+  res.json({ authenticated: false, role: null });
+});
+
 // --- Players ---
 
 app.get('/api/players', (_req, res) => {
@@ -77,7 +210,7 @@ app.get('/api/players', (_req, res) => {
   res.json(players);
 });
 
-app.post('/api/players', (req, res) => {
+app.post('/api/players', requireAdmin, (req, res) => {
   const normalizedName = normalizePlayerName(req.body?.name);
   if (!normalizedName) return res.status(400).json({ error: 'Name is required' });
   try {
@@ -89,7 +222,7 @@ app.post('/api/players', (req, res) => {
   }
 });
 
-app.delete('/api/players/:id', (req, res) => {
+app.delete('/api/players/:id', requireAdmin, (req, res) => {
   const playerId = Number(req.params.id);
   if (!Number.isInteger(playerId) || playerId <= 0) {
     return res.status(400).json({ error: 'Invalid player id' });
@@ -123,7 +256,7 @@ app.get('/api/games/trash', (_req, res) => {
   res.json(getGames(true));
 });
 
-app.post('/api/games', (req, res) => {
+app.post('/api/games', requireAdmin, (req, res) => {
   const playerIds = normalizePlayerIds(req.body?.player_ids);
   if (!playerIds || playerIds.length < 2) {
     return res.status(400).json({ error: 'At least 2 players required' });
@@ -159,7 +292,7 @@ app.post('/api/games', (req, res) => {
   }
 });
 
-app.post('/api/games/import', (req, res) => {
+app.post('/api/games/import', requireAdmin, (req, res) => {
   const rawPlayers = Array.isArray(req.body?.player_names) ? req.body.player_names : null;
   const rawRounds = Array.isArray(req.body?.rounds) ? req.body.rounds : null;
 
@@ -252,7 +385,7 @@ app.post('/api/games/import', (req, res) => {
   }
 });
 
-app.patch('/api/games/:id/finish', (req, res) => {
+app.patch('/api/games/:id/finish', requireAdmin, (req, res) => {
   const game = getGameById(req.params.id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Cannot finish a deleted game' });
@@ -262,7 +395,7 @@ app.patch('/api/games/:id/finish', (req, res) => {
   res.json(updatedGame);
 });
 
-app.patch('/api/games/:id/trash', (req, res) => {
+app.patch('/api/games/:id/trash', requireAdmin, (req, res) => {
   const game = getGameById(req.params.id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Game is already in the trash' });
@@ -272,7 +405,7 @@ app.patch('/api/games/:id/trash', (req, res) => {
   res.json(updatedGame);
 });
 
-app.patch('/api/games/:id/restore', (req, res) => {
+app.patch('/api/games/:id/restore', requireAdmin, (req, res) => {
   const game = getGameById(req.params.id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (!game.deleted_at) return res.status(409).json({ error: 'Game is not in the trash' });
@@ -282,7 +415,7 @@ app.patch('/api/games/:id/restore', (req, res) => {
   res.json(updatedGame);
 });
 
-app.delete('/api/games/:id', (req, res) => {
+app.delete('/api/games/:id', requireAdmin, (req, res) => {
   const game = getGameById(req.params.id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
 
@@ -316,7 +449,7 @@ app.get('/api/games/:id', (req, res) => {
 
 // --- Rounds ---
 
-app.post('/api/games/:id/rounds', (req, res) => {
+app.post('/api/games/:id/rounds', requireAdmin, (req, res) => {
   const game = getGameById(req.params.id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });
@@ -360,7 +493,7 @@ app.post('/api/games/:id/rounds', (req, res) => {
   res.status(201).json(round);
 });
 
-app.delete('/api/games/:gameId/rounds/:roundId', (req, res) => {
+app.delete('/api/games/:gameId/rounds/:roundId', requireAdmin, (req, res) => {
   const game = getGameById(req.params.gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });

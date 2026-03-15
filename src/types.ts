@@ -4,6 +4,13 @@ export interface Player {
   created_at: string;
 }
 
+export type Role = 'admin';
+
+export interface AuthSession {
+  authenticated: boolean;
+  role: Role | null;
+}
+
 export interface Game {
   id: number;
   started_at: string;
