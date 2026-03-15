@@ -22,6 +22,16 @@ function normalizePlayerIds(value: unknown): number[] | null {
   return [...new Set(ids)];
 }
 
+function normalizePlayerName(value: unknown): string {
+  if (typeof value !== 'string') return '';
+
+  return value
+    .trim()
+    .split(/\s+/)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
 // --- Players ---
 
 app.get('/api/players', (_req, res) => {
@@ -30,10 +40,10 @@ app.get('/api/players', (_req, res) => {
 });
 
 app.post('/api/players', (req, res) => {
-  const { name } = req.body;
-  if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
+  const normalizedName = normalizePlayerName(req.body?.name);
+  if (!normalizedName) return res.status(400).json({ error: 'Name is required' });
   try {
-    const result = db.prepare('INSERT INTO players (name) VALUES (?)').run(name.trim());
+    const result = db.prepare('INSERT INTO players (name) VALUES (?)').run(normalizedName);
     const player = db.prepare('SELECT * FROM players WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(player);
   } catch {
