@@ -84,6 +84,12 @@ ligretto-admin
 
 ### docker
 
+create your local compose file first:
+
+```bash
+cp docker-compose.yml.example docker-compose.yml
+```
+
 ```bash
 docker compose up -d --build
 ```

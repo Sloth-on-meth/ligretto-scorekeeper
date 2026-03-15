@@ -18,6 +18,7 @@ dist-ssr
 *.db-shm
 *.db-wal
 data/
+docker-compose.yml
 
 # Claude
 .claude/
