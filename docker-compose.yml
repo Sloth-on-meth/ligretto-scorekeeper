@@ -4,6 +4,8 @@ services:
       context: .
     image: ligretto-scorekeeper:latest
     network_mode: bridge
+    ports:
+      - "3001:3001"
     environment:
       PORT: 3001
       DB_PATH: /data/ligretto.db
