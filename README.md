@@ -74,6 +74,25 @@ open **http://localhost:5173** — that's it.
 
 the API runs on `:3001`, proxied by Vite. the database is created at `ligretto.db` on first run (git-ignored, yours forever).
 
+### docker
+
+```bash
+docker compose up -d --build
+```
+
+open **http://localhost:3001**.
+
+the app runs as a single container that serves both the frontend and API. sqlite data is stored in a named Docker volume so it survives container rebuilds and image updates.
+
+to update after pulling new repo changes:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+if you later publish this image to a registry, `docker compose pull && docker compose up -d` will work too. for a local source checkout, `--build` is the important part because `docker compose pull` does not rebuild from updated files.
+
 ### scripts
 
 ```bash

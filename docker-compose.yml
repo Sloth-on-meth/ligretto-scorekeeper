@@ -1,0 +1,16 @@
+services:
+  ligretto-scorekeeper:
+    build:
+      context: .
+    image: ligretto-scorekeeper:latest
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      DB_PATH: /data/ligretto.db
+    volumes:
+      - ligretto_data:/data
+    restart: unless-stopped
+
+volumes:
+  ligretto_data:

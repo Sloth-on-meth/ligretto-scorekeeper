@@ -1,10 +1,26 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import db from './db.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.join(__dirname, '..', 'dist');
+const indexHtmlPath = path.join(distDir, 'index.html');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+function normalizePlayerIds(value: unknown): number[] | null {
+  if (!Array.isArray(value)) return null;
+
+  const ids = value.map(id => Number(id));
+  if (ids.some(id => !Number.isInteger(id) || id <= 0)) return null;
+
+  return [...new Set(ids)];
+}
 
 // --- Players ---
 
@@ -26,7 +42,26 @@ app.post('/api/players', (req, res) => {
 });
 
 app.delete('/api/players/:id', (req, res) => {
-  db.prepare('DELETE FROM players WHERE id = ?').run(req.params.id);
+  const playerId = Number(req.params.id);
+  if (!Number.isInteger(playerId) || playerId <= 0) {
+    return res.status(400).json({ error: 'Invalid player id' });
+  }
+
+  const player = db.prepare('SELECT id FROM players WHERE id = ?').get(playerId);
+  if (!player) {
+    return res.status(404).json({ error: 'Player not found' });
+  }
+
+  const usage = db.prepare(`
+    SELECT EXISTS(SELECT 1 FROM game_players WHERE player_id = ?) AS has_games,
+           EXISTS(SELECT 1 FROM round_scores WHERE player_id = ?) AS has_rounds
+  `).get(playerId, playerId) as { has_games: number; has_rounds: number };
+
+  if (usage.has_games || usage.has_rounds) {
+    return res.status(409).json({ error: 'Cannot delete a player with game history' });
+  }
+
+  db.prepare('DELETE FROM players WHERE id = ?').run(playerId);
   res.status(204).end();
 });
 
@@ -56,16 +91,39 @@ app.get('/api/games', (_req, res) => {
 });
 
 app.post('/api/games', (req, res) => {
-  const { player_ids } = req.body;
-  if (!Array.isArray(player_ids) || player_ids.length < 2) {
+  const playerIds = normalizePlayerIds(req.body?.player_ids);
+  if (!playerIds || playerIds.length < 2) {
     return res.status(400).json({ error: 'At least 2 players required' });
   }
-  const result = db.prepare('INSERT INTO games DEFAULT VALUES').run();
-  const gameId = result.lastInsertRowid;
-  const insertPlayer = db.prepare('INSERT INTO game_players (game_id, player_id) VALUES (?, ?)');
-  for (const pid of player_ids) insertPlayer.run(gameId, pid);
-  const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId);
-  res.status(201).json(game);
+
+  const existingPlayers = db.prepare(`
+    SELECT id
+    FROM players
+    WHERE id IN (${playerIds.map(() => '?').join(', ')})
+  `).all(...playerIds) as { id: number }[];
+
+  if (existingPlayers.length !== playerIds.length) {
+    return res.status(400).json({ error: 'All players must exist before starting a game' });
+  }
+
+  try {
+    const createGame = db.transaction(() => {
+      const result = db.prepare('INSERT INTO games DEFAULT VALUES').run();
+      const gameId = result.lastInsertRowid;
+      const insertPlayer = db.prepare('INSERT INTO game_players (game_id, player_id) VALUES (?, ?)');
+
+      for (const playerId of playerIds) {
+        insertPlayer.run(gameId, playerId);
+      }
+
+      return db.prepare('SELECT * FROM games WHERE id = ?').get(gameId);
+    });
+
+    const game = createGame();
+    res.status(201).json(game);
+  } catch {
+    res.status(500).json({ error: 'Failed to create game' });
+  }
 });
 
 app.patch('/api/games/:id/finish', (req, res) => {
@@ -157,23 +215,45 @@ app.delete('/api/games/:gameId/rounds/:roundId', (req, res) => {
 
 app.get('/api/stats', (_req, res) => {
   const stats = db.prepare(`
+    WITH game_counts AS (
+      SELECT player_id, COUNT(*) AS games_played
+      FROM game_players
+      GROUP BY player_id
+    ),
+    round_stats AS (
+      SELECT
+        player_id,
+        COUNT(*) AS rounds_played,
+        COALESCE(SUM(score), 0) AS total_score,
+        COALESCE(ROUND(AVG(score), 1), 0) AS avg_score_per_round,
+        MAX(score) AS best_round,
+        MIN(score) AS worst_round
+      FROM round_scores
+      GROUP BY player_id
+    )
     SELECT
       p.id,
       p.name,
-      COUNT(DISTINCT gp.game_id) AS games_played,
-      COUNT(rs.id) AS rounds_played,
-      COALESCE(SUM(rs.score), 0) AS total_score,
-      COALESCE(ROUND(AVG(rs.score), 1), 0) AS avg_score_per_round,
-      MAX(rs.score) AS best_round,
-      MIN(rs.score) AS worst_round
+      COALESCE(gc.games_played, 0) AS games_played,
+      COALESCE(rs.rounds_played, 0) AS rounds_played,
+      COALESCE(rs.total_score, 0) AS total_score,
+      COALESCE(rs.avg_score_per_round, 0) AS avg_score_per_round,
+      rs.best_round AS best_round,
+      rs.worst_round AS worst_round
     FROM players p
-    LEFT JOIN game_players gp ON gp.player_id = p.id
-    LEFT JOIN round_scores rs ON rs.player_id = p.id
-    GROUP BY p.id
+    LEFT JOIN game_counts gc ON gc.player_id = p.id
+    LEFT JOIN round_stats rs ON rs.player_id = p.id
     ORDER BY total_score DESC
   `).all();
   res.json(stats);
 });
 
-const PORT = 3001;
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.get(/^(?!\/api(?:\/|$)).*/, (_req, res) => {
+    res.sendFile(indexHtmlPath);
+  });
+}
+
+const PORT = Number(process.env.PORT ?? 3001);
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));

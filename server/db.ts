@@ -3,7 +3,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const db = new Database(path.join(__dirname, '..', 'ligretto.db'));
+const defaultDbPath = path.join(__dirname, '..', 'ligretto.db');
+const dbPath = process.env.DB_PATH ?? defaultDbPath;
+const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
@@ -44,6 +46,14 @@ db.exec(`
     score INTEGER NOT NULL,
     UNIQUE (round_id, player_id)
   );
+
+  CREATE TRIGGER IF NOT EXISTS prevent_player_delete_with_history
+  BEFORE DELETE ON players
+  WHEN EXISTS (SELECT 1 FROM game_players WHERE player_id = OLD.id)
+    OR EXISTS (SELECT 1 FROM round_scores WHERE player_id = OLD.id)
+  BEGIN
+    SELECT RAISE(ABORT, 'Cannot delete a player with game history');
+  END;
 `);
 
 export default db;

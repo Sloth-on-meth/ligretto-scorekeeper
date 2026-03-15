@@ -10,6 +10,12 @@ interface Props {
 
 type InputMode = 'formula' | 'direct';
 
+function csvCell(value: string | number) {
+  const text = String(value);
+  if (!/[",\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
 function exportCSV(detail: GameDetail) {
   const { game, players, rounds } = detail;
   const roundNumbers = [...new Set(rounds.map(r => r.round_number))].sort((a, b) => a - b);
@@ -19,11 +25,13 @@ function exportCSV(detail: GameDetail) {
     scoreMap[r.round_number][r.player_id] = r.score;
   });
 
-  const header = ['Player', ...roundNumbers.map(r => `R${r}`), 'Total'].join(',');
+  const header = ['Player', ...roundNumbers.map(r => `R${r}`), 'Total']
+    .map(csvCell)
+    .join(',');
   const rows = players.map(p => {
     const total = rounds.filter(r => r.player_id === p.id).reduce((s, r) => s + r.score, 0);
     const scores = roundNumbers.map(r => scoreMap[r]?.[p.id] ?? '');
-    return [p.name, ...scores, total].join(',');
+    return [p.name, ...scores, total].map(csvCell).join(',');
   });
 
   const csv = [header, ...rows].join('\n');
@@ -194,7 +202,7 @@ export default function GameView({ gameId, onBack }: Props) {
                       <div className="flex flex-col items-center gap-1">
                         <div className="rounded-md font-black text-xs flex items-center justify-center"
                           style={{ width: 26, height: 34, backgroundColor: c.bg, color: c.text, boxShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>
-                          {rank === 0 && roundNumbers.length === (rounds.length / players.length | 0) ? '🏆' : rank + 1}
+                          {game.finished_at && rank === 0 ? '🏆' : rank + 1}
                         </div>
                         <span className="font-bold text-xs">{p.name}</span>
                       </div>
