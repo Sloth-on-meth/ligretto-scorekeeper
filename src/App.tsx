@@ -51,13 +51,13 @@ export default function App() {
     <div className="min-h-screen" style={{ backgroundColor: '#111118', color: '#fff' }}>
       <header style={{ backgroundColor: surface, borderBottom: `1px solid ${border}` }}
         className="sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-0 flex flex-wrap items-center justify-between gap-3">
+        <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 
           {/* Logo */}
           <button
             type="button"
             onClick={goHome}
-            className="flex items-center gap-0 py-2 rounded-xl transition-opacity cursor-pointer"
+            className="flex items-center gap-0 rounded-xl transition-opacity cursor-pointer self-start"
             style={{ backgroundColor: 'transparent' }}
             title="Back to games"
           >
@@ -80,14 +80,14 @@ export default function App() {
           </button>
 
           {/* Nav tabs */}
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <nav className="flex items-stretch gap-0 overflow-x-auto">
+          <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
+            <nav className="flex items-stretch gap-0 overflow-x-auto scrollbar-none">
               {(['games', 'players', 'stats'] as Tab[]).map(t => (
                 <button
                   type="button"
                   key={t}
                   onClick={() => setTab(t)}
-                  className="px-4 text-sm font-bold capitalize transition-all relative"
+                  className="px-4 py-2 text-sm font-bold capitalize transition-all relative whitespace-nowrap"
                   style={tab === t
                     ? { color: '#fff', borderBottom: '3px solid #e02020' }
                     : { color: muted, borderBottom: '3px solid transparent' }
@@ -102,7 +102,7 @@ export default function App() {
                 Checking auth…
               </span>
             ) : canEdit ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 self-start md:self-auto">
                 <span className="text-xs font-black uppercase tracking-wide px-2 py-1 rounded-lg"
                   style={{ backgroundColor: '#15502a', color: '#4ade80' }}>
                   Admin
@@ -116,7 +116,7 @@ export default function App() {
                 </button>
               </div>
             ) : (
-              <form onSubmit={login} className="flex items-center gap-2">
+              <form onSubmit={login} className="flex w-full items-center gap-2 md:w-auto">
                 <input
                   type="password"
                   autoComplete="current-password"
@@ -126,12 +126,12 @@ export default function App() {
                     if (authError) setAuthError('');
                   }}
                   placeholder="Admin password"
-                  className="rounded-xl px-3 py-2 text-sm focus:outline-none w-36"
+                  className="rounded-xl px-3 py-2 text-sm focus:outline-none flex-1 md:w-44"
                   style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
                 />
                 <button
                   type="submit"
-                  className="px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wide"
+                  className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wide whitespace-nowrap"
                   style={{ backgroundColor: '#e02020', color: '#fff' }}
                 >
                   Sign in
@@ -142,7 +142,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-8">
+      <main className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 md:py-8">
         {!authLoading && !canEdit && (
           <div className="rounded-xl px-4 py-3 mb-6 text-sm" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
             <span style={{ color: '#fff' }}>Read-only mode.</span>{' '}

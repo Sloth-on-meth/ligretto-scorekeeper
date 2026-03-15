@@ -147,83 +147,90 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
 
   return (
     <div>
-      <h2 className="text-2xl font-black mb-6 uppercase tracking-wide">Games</h2>
+      <div className="flex items-end justify-between gap-3 mb-5">
+        <h2 className="text-2xl font-black uppercase tracking-wide">Games</h2>
+        <p className="text-xs font-medium text-right hidden sm:block" style={{ color: muted }}>
+          {games.length} active{canEdit ? ` • ${trashedGames.length} trashed` : ''}
+        </p>
+      </div>
 
-      {/* New game panel */}
-      <div className="rounded-2xl p-5 mb-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
-        <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: muted }}>New Game</p>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] mb-6">
+        {/* New game panel */}
+        <div className="rounded-2xl p-4 sm:p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+          <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: muted }}>New Game</p>
 
-        {!canEdit ? (
-          <p className="text-sm" style={{ color: muted }}>You&apos;re in read-only mode. Sign in to start a game.</p>
-        ) : players.length < 2 ? (
-          <p className="text-sm" style={{ color: muted }}>Add at least 2 players first.</p>
-        ) : (
-          <>
-            <div className="flex flex-wrap gap-2 mb-5">
-              {players.map((p, i) => {
-                const c = PLAYER_COLORS[i % PLAYER_COLORS.length];
-                const sel = selectedPlayers.includes(p.id);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => togglePlayer(p.id)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all"
-                    style={sel
-                      ? { backgroundColor: c.bg, color: c.text, boxShadow: `0 0 0 2px ${c.bg}40` }
-                      : { backgroundColor: '#111118', color: muted, border: `1px solid ${border}` }
-                    }
-                  >
-                    <span className="rounded font-black text-xs flex items-center justify-center"
-                      style={{ width: 18, height: 22, backgroundColor: sel ? 'rgba(0,0,0,0.25)' : c.bg, color: '#fff', fontSize: '0.6rem' }}>
-                      {i + 1}
-                    </span>
-                    {p.name}
-                    {sel && <span className="text-xs opacity-70">✓</span>}
-                  </button>
-                );
-              })}
-            </div>
-            {error && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{error}</p>}
+          {!canEdit ? (
+            <p className="text-sm" style={{ color: muted }}>You&apos;re in read-only mode. Sign in to start a game.</p>
+          ) : players.length < 2 ? (
+            <p className="text-sm" style={{ color: muted }}>Add at least 2 players first.</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2 mb-5">
+                {players.map((p, i) => {
+                  const c = PLAYER_COLORS[i % PLAYER_COLORS.length];
+                  const sel = selectedPlayers.includes(p.id);
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => togglePlayer(p.id)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all"
+                      style={sel
+                        ? { backgroundColor: c.bg, color: c.text, boxShadow: `0 0 0 2px ${c.bg}40` }
+                        : { backgroundColor: '#111118', color: muted, border: `1px solid ${border}` }
+                      }
+                    >
+                      <span className="rounded font-black text-xs flex items-center justify-center"
+                        style={{ width: 18, height: 22, backgroundColor: sel ? 'rgba(0,0,0,0.25)' : c.bg, color: '#fff', fontSize: '0.6rem' }}>
+                        {i + 1}
+                      </span>
+                      {p.name}
+                      {sel && <span className="text-xs opacity-70">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {error && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{error}</p>}
+              <button
+                onClick={startGame}
+                disabled={selectedPlayers.length < 2}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
+                style={{ backgroundColor: '#e02020', color: '#fff' }}
+              >
+                Start — {selectedPlayers.length} Players
+              </button>
+            </>
+          )}
+        </div>
+
+        {canEdit && (
+          <div className="rounded-2xl p-4 sm:p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+            <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: muted }}>Import Finished Game</p>
+            <p className="text-sm mb-4" style={{ color: muted }}>
+              Paste tab-separated data with player names in the first row and round scores below. Missing players will be created automatically.
+            </p>
+            <textarea
+              value={importText}
+              onChange={e => setImportText(e.target.value)}
+              placeholder={'sam\tamber\tsofie\n14\t25\t10\n11\t11\t16'}
+              className="w-full rounded-xl px-4 py-3 text-sm font-medium resize-y min-h-44 focus:outline-none mb-4"
+              style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
+            />
+            {importError && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{importError}</p>}
             <button
-              onClick={startGame}
-              disabled={selectedPlayers.length < 2}
-              className="px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
+              onClick={importGame}
+              disabled={!importText.trim()}
+              className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
               style={{ backgroundColor: '#e02020', color: '#fff' }}
             >
-              Start — {selectedPlayers.length} Players
+              Import Game
             </button>
-          </>
+          </div>
         )}
       </div>
 
-      {canEdit && (
-        <div className="rounded-2xl p-5 mb-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
-          <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: muted }}>Import Finished Game</p>
-          <p className="text-sm mb-4" style={{ color: muted }}>
-            Paste tab-separated data with player names in the first row and round scores below. Missing players will be created automatically.
-          </p>
-          <textarea
-            value={importText}
-            onChange={e => setImportText(e.target.value)}
-            placeholder={'sam\tamber\tsofie\n14\t25\t10\n11\t11\t16'}
-            className="w-full rounded-xl px-4 py-3 text-sm font-medium resize-y min-h-44 focus:outline-none mb-4"
-            style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
-          />
-          {importError && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{importError}</p>}
-          <button
-            onClick={importGame}
-            disabled={!importText.trim()}
-            className="px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
-            style={{ backgroundColor: '#e02020', color: '#fff' }}
-          >
-            Import Game
-          </button>
-        </div>
-      )}
-
       {/* Games list */}
-      <div className="space-y-2">
+      <div className="space-y-3">
         {games.map(g => (
           <div key={g.id}
             className="rounded-xl overflow-hidden"
@@ -238,7 +245,7 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
               </div>
             )}
 
-            <div className="px-4 py-3 flex items-center justify-between"
+            <div className="px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
               style={{ backgroundColor: surface }}>
               <div>
                 <div className="flex items-center gap-2 mb-0.5">
@@ -254,11 +261,11 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
                   {new Date(g.started_at).toLocaleString()} · {g.round_count} rounds · {g.player_names}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 sm:flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => setActiveGameId(g.id)}
-                  className="text-sm font-black uppercase tracking-wide px-3 py-1.5 rounded-lg"
+                  className="w-full sm:w-auto text-sm font-black uppercase tracking-wide px-4 py-2 rounded-lg"
                   style={{ backgroundColor: '#e02020', color: '#fff' }}
                 >
                   Open
@@ -266,7 +273,7 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
                 {canEdit && (
                   <button
                     onClick={() => trashGame(g.id)}
-                    className="text-xs font-medium transition-colors"
+                    className="text-xs font-medium transition-colors whitespace-nowrap"
                     style={{ color: muted }}
                     onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
                     onMouseLeave={e => (e.currentTarget.style.color = muted)}
@@ -294,7 +301,7 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
       </div>
 
       {canEdit && (
-        <div className="rounded-2xl p-5 mt-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+        <div className="rounded-2xl p-4 sm:p-5 mt-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
               <p className="text-xs font-black uppercase tracking-widest mb-1" style={{ color: muted }}>Trash</p>
