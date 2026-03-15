@@ -10,6 +10,7 @@ type Tab = 'games' | 'players' | 'stats';
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('games');
+  const [gamesHomeSignal, setGamesHomeSignal] = useState(0);
   const [auth, setAuth] = useState<AuthSession>({ authenticated: false, role: null });
   const [authLoading, setAuthLoading] = useState(true);
   const [password, setPassword] = useState('');
@@ -41,15 +42,25 @@ export default function App() {
     setAuthError('');
   };
 
+  const goHome = () => {
+    setTab('games');
+    setGamesHomeSignal(prev => prev + 1);
+  };
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#111118', color: '#fff' }}>
       <header style={{ backgroundColor: surface, borderBottom: `1px solid ${border}` }}
         className="sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-0 flex items-stretch justify-between gap-4">
+        <div className="max-w-5xl mx-auto px-4 py-0 flex flex-wrap items-center justify-between gap-3">
 
           {/* Logo */}
-          <div className="flex items-center gap-0 py-2">
-            {/* Coloured card stack */}
+          <button
+            type="button"
+            onClick={goHome}
+            className="flex items-center gap-0 py-2 rounded-xl transition-opacity cursor-pointer"
+            style={{ backgroundColor: 'transparent' }}
+            title="Back to games"
+          >
             <div className="flex mr-3" style={{ gap: '-4px' }}>
               {['#c81818','#1844c8','#18a030','#c89800'].map((c, i) => (
                 <div key={i} className="rounded-md flex items-center justify-center font-black text-white text-xs"
@@ -58,7 +69,7 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <div className="ml-2">
+            <div className="ml-2 text-left">
               <div className="font-black text-lg leading-none tracking-widest uppercase" style={{ color: '#e02020' }}>
                 Ligretto
               </div>
@@ -66,13 +77,14 @@ export default function App() {
                 Scorekeeper
               </div>
             </div>
-          </div>
+          </button>
 
           {/* Nav tabs */}
-          <div className="flex items-center gap-4">
-            <nav className="flex items-stretch gap-0">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <nav className="flex items-stretch gap-0 overflow-x-auto">
               {(['games', 'players', 'stats'] as Tab[]).map(t => (
                 <button
+                  type="button"
                   key={t}
                   onClick={() => setTab(t)}
                   className="px-4 text-sm font-bold capitalize transition-all relative"
@@ -107,8 +119,12 @@ export default function App() {
               <form onSubmit={login} className="flex items-center gap-2">
                 <input
                   type="password"
+                  autoComplete="current-password"
                   value={password}
-                  onChange={e => setPassword(e.target.value)}
+                  onChange={e => {
+                    setPassword(e.target.value);
+                    if (authError) setAuthError('');
+                  }}
                   placeholder="Admin password"
                   className="rounded-xl px-3 py-2 text-sm focus:outline-none w-36"
                   style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
@@ -135,7 +151,7 @@ export default function App() {
           </div>
         )}
 
-        {tab === 'games' && <GamesPage canEdit={canEdit} />}
+        {tab === 'games' && <GamesPage canEdit={canEdit} homeSignal={gamesHomeSignal} />}
         {tab === 'players' && <PlayersPage canEdit={canEdit} />}
         {tab === 'stats' && <StatsPage />}
       </main>

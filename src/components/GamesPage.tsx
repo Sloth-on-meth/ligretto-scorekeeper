@@ -11,6 +11,7 @@ interface ParsedImportGame {
 
 interface Props {
   canEdit: boolean;
+  homeSignal?: number;
 }
 
 function parseImportedGame(text: string): ParsedImportGame {
@@ -56,7 +57,7 @@ function parseImportedGame(text: string): ParsedImportGame {
   return { playerNames, rounds };
 }
 
-export default function GamesPage({ canEdit }: Props) {
+export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
   const [games, setGames] = useState<Game[]>([]);
   const [trashedGames, setTrashedGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -74,6 +75,13 @@ export default function GamesPage({ canEdit }: Props) {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    setActiveGameId(null);
+    setShowTrash(false);
+    setError('');
+    setImportError('');
+  }, [homeSignal]);
 
   if (activeGameId !== null) {
     return <GameView gameId={activeGameId} canEdit={canEdit} onBack={() => { setActiveGameId(null); load(); }} />;
@@ -248,6 +256,7 @@ export default function GamesPage({ canEdit }: Props) {
               </div>
               <div className="flex items-center gap-3">
                 <button
+                  type="button"
                   onClick={() => setActiveGameId(g.id)}
                   className="text-sm font-black uppercase tracking-wide px-3 py-1.5 rounded-lg"
                   style={{ backgroundColor: '#e02020', color: '#fff' }}
