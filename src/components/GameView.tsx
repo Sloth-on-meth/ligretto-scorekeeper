@@ -6,6 +6,7 @@ import { PLAYER_COLORS, surface, border, muted } from '../theme';
 interface Props {
   gameId: number;
   onBack: () => void;
+  canEdit: boolean;
 }
 
 type InputMode = 'formula' | 'direct';
@@ -44,7 +45,7 @@ function exportCSV(detail: GameDetail) {
   URL.revokeObjectURL(url);
 }
 
-export default function GameView({ gameId, onBack }: Props) {
+export default function GameView({ gameId, onBack, canEdit }: Props) {
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [mode, setMode] = useState<InputMode>('formula');
   const [formulaInputs, setFormulaInputs] = useState<Record<number, { cards_played: string; cards_in_hand: string }>>({});
@@ -171,16 +172,21 @@ export default function GameView({ gameId, onBack }: Props) {
               CSV ↓
             </button>
           )}
-          {!game.finished_at ? (
+          {canEdit && !game.finished_at ? (
             <button onClick={finishGame}
               className="px-4 py-2 rounded-xl text-sm font-black uppercase tracking-wide"
               style={{ backgroundColor: '#15502a', color: '#4ade80', border: '1px solid #1a6634' }}>
               Finish ✓
             </button>
-          ) : (
+          ) : game.finished_at ? (
             <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase"
               style={{ backgroundColor: '#15502a', color: '#4ade80' }}>
               Finished
+            </span>
+          ) : (
+            <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase"
+              style={{ backgroundColor: '#2a2a38', color: muted }}>
+              Read-only
             </span>
           )}
         </div>
@@ -209,7 +215,7 @@ export default function GameView({ gameId, onBack }: Props) {
                     </th>
                   );
                 })}
-                {!game.finished_at && <th style={{ width: 32 }} />}
+                {canEdit && !game.finished_at && <th style={{ width: 32 }} />}
               </tr>
             </thead>
             <tbody>
@@ -231,7 +237,7 @@ export default function GameView({ gameId, onBack }: Props) {
                       </td>
                     );
                   })}
-                  {!game.finished_at && (
+                  {canEdit && !game.finished_at && (
                     <td className="py-2.5 pr-3 text-center">
                       <button onClick={() => deleteRound(roundIdMap[r])}
                         className="text-xs transition-colors"
@@ -259,7 +265,7 @@ export default function GameView({ gameId, onBack }: Props) {
                     </td>
                   );
                 })}
-                {!game.finished_at && <td />}
+                {canEdit && !game.finished_at && <td />}
               </tr>
             </tbody>
           </table>
@@ -267,7 +273,12 @@ export default function GameView({ gameId, onBack }: Props) {
       )}
 
       {/* Round entry form — mobile-first card-per-player layout */}
-      {!game.finished_at && (
+      {!canEdit && !game.finished_at && (
+        <div className="rounded-2xl p-4" style={{ backgroundColor: surface, border: `1px solid ${border}`, color: muted }}>
+          Sign in to add rounds, delete rounds, or finish this game.
+        </div>
+      )}
+      {canEdit && !game.finished_at && (
         <div className="rounded-2xl p-4" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs font-black uppercase tracking-widest" style={{ color: muted }}>

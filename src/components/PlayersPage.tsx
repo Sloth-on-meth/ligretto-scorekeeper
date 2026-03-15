@@ -3,7 +3,11 @@ import { api } from '../api';
 import type { Player } from '../types';
 import { PLAYER_COLORS, surface, border, muted } from '../theme';
 
-export default function PlayersPage() {
+interface Props {
+  canEdit: boolean;
+}
+
+export default function PlayersPage({ canEdit }: Props) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -32,23 +36,29 @@ export default function PlayersPage() {
     <div className="max-w-lg mx-auto">
       <h2 className="text-2xl font-black mb-6 uppercase tracking-wide">Players</h2>
 
-      <form onSubmit={add} className="flex gap-2 mb-6">
-        <input
-          className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none"
-          style={{ backgroundColor: surface, border: `1px solid ${border}`, color: '#fff' }}
-          placeholder="Enter player name…"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          required
-        />
-        <button
-          type="submit"
-          className="px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-wide"
-          style={{ backgroundColor: '#e02020', color: '#fff' }}
-        >
-          Add
-        </button>
-      </form>
+      {canEdit ? (
+        <form onSubmit={add} className="flex gap-2 mb-6">
+          <input
+            className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none"
+            style={{ backgroundColor: surface, border: `1px solid ${border}`, color: '#fff' }}
+            placeholder="Enter player name…"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            required
+          />
+          <button
+            type="submit"
+            className="px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-wide"
+            style={{ backgroundColor: '#e02020', color: '#fff' }}
+          >
+            Add
+          </button>
+        </form>
+      ) : (
+        <div className="rounded-xl px-4 py-3 mb-6 text-sm" style={{ backgroundColor: surface, border: `1px solid ${border}`, color: muted }}>
+          You&apos;re in read-only mode. Sign in to add or remove players.
+        </div>
+      )}
 
       {error && <p className="text-sm mb-4" style={{ color: '#f87171' }}>{error}</p>}
 
@@ -68,15 +78,17 @@ export default function PlayersPage() {
                 </div>
                 <span className="font-bold">{p.name}</span>
               </div>
-              <button
-                onClick={() => remove(p.id)}
-                className="text-sm font-medium transition-colors"
-                style={{ color: muted }}
-                onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                onMouseLeave={e => (e.currentTarget.style.color = muted)}
-              >
-                Remove
-              </button>
+              {canEdit && (
+                <button
+                  onClick={() => remove(p.id)}
+                  className="text-sm font-medium transition-colors"
+                  style={{ color: muted }}
+                  onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                  onMouseLeave={e => (e.currentTarget.style.color = muted)}
+                >
+                  Remove
+                </button>
+              )}
             </li>
           );
         })}
