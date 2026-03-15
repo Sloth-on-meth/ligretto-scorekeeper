@@ -74,7 +74,7 @@ npm run dev
 
 open **http://localhost:5173** — that's it.
 
-the API runs on `:3001`, proxied by Vite. the database is created at `ligretto.db` on first run (git-ignored, yours forever).
+the API runs on `:3001`, proxied by Vite. the database is created at `data/ligretto.db` on first run (git-ignored, yours forever).
 
 by default, logged-out users can browse everything in read-only mode. to make changes, sign in with the admin password. unless you override it, the default password is:
 
@@ -90,7 +90,7 @@ docker compose up -d --build
 
 open **http://localhost:3001**.
 
-the app runs as a single container that serves both the frontend and API. sqlite data is stored in a named Docker volume so it survives container rebuilds and image updates.
+the app runs as a single container that serves both the frontend and API. sqlite data is stored in `./data/ligretto.db` on the host machine.
 
 you can override the admin password and session secret with environment variables:
 
@@ -140,7 +140,8 @@ ligretto-scorekeeper/
 │   ├── types.ts       # shared ts types
 │   └── App.tsx        # root + nav
 │
-├── ligretto.db        # ← your data lives here (auto-created)
+├── data/
+│   └── ligretto.db    # ← your data lives here (auto-created)
 └── vite.config.ts
 ```
 
