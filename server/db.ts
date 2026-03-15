@@ -10,6 +10,14 @@ const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+function toTitleCase(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,5 +73,94 @@ const hasDeletedAt = db.prepare(`
 if (!hasDeletedAt) {
   db.exec("ALTER TABLE games ADD COLUMN deleted_at TEXT");
 }
+
+const mergeDuplicatePlayers = db.transaction(() => {
+  const duplicateGroups = db.prepare(`
+    SELECT LOWER(name) AS normalized_name
+    FROM players
+    GROUP BY LOWER(name)
+    HAVING COUNT(*) > 1
+  `).all() as { normalized_name: string }[];
+
+  const getPlayersByNormalizedName = db.prepare(`
+    SELECT
+      p.id,
+      p.name,
+      p.created_at,
+      (SELECT COUNT(*) FROM round_scores rs WHERE rs.player_id = p.id) AS round_count,
+      (SELECT COUNT(*) FROM game_players gp WHERE gp.player_id = p.id) AS game_count
+    FROM players p
+    WHERE LOWER(p.name) = ?
+    ORDER BY round_count DESC, game_count DESC, p.id ASC
+  `);
+
+  const removeDuplicateGamePlayers = db.prepare(`
+    DELETE FROM game_players
+    WHERE player_id = ?
+      AND game_id IN (
+        SELECT game_id
+        FROM game_players
+        WHERE player_id = ?
+      )
+  `);
+
+  const moveGamePlayers = db.prepare('UPDATE game_players SET player_id = ? WHERE player_id = ?');
+
+  const removeDuplicateRoundScores = db.prepare(`
+    DELETE FROM round_scores
+    WHERE player_id = ?
+      AND round_id IN (
+        SELECT round_id
+        FROM round_scores
+        WHERE player_id = ?
+      )
+  `);
+
+  const moveRoundScores = db.prepare('UPDATE round_scores SET player_id = ? WHERE player_id = ?');
+  const renamePlayer = db.prepare('UPDATE players SET name = ? WHERE id = ?');
+  const deletePlayer = db.prepare('DELETE FROM players WHERE id = ?');
+
+  for (const group of duplicateGroups) {
+    const players = getPlayersByNormalizedName.all(group.normalized_name) as {
+      id: number;
+      name: string;
+      created_at: string;
+      round_count: number;
+      game_count: number;
+    }[];
+
+    if (players.length < 2) continue;
+
+    const preferredName = toTitleCase(players[0].name);
+    const canonical =
+      players.find(player => player.name === preferredName)
+      ?? players[0];
+
+    for (const duplicate of players) {
+      if (duplicate.id === canonical.id) continue;
+
+      removeDuplicateGamePlayers.run(duplicate.id, canonical.id);
+      moveGamePlayers.run(canonical.id, duplicate.id);
+
+      removeDuplicateRoundScores.run(duplicate.id, canonical.id);
+      moveRoundScores.run(canonical.id, duplicate.id);
+
+      deletePlayer.run(duplicate.id);
+    }
+
+    renamePlayer.run(preferredName, canonical.id);
+  }
+
+  const playersToNormalize = db.prepare('SELECT id, name FROM players').all() as { id: number; name: string }[];
+  for (const player of playersToNormalize) {
+    const normalizedName = toTitleCase(player.name);
+    if (normalizedName !== player.name) {
+      renamePlayer.run(normalizedName, player.id);
+    }
+  }
+});
+
+mergeDuplicatePlayers();
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS players_name_nocase ON players(name COLLATE NOCASE)');
 
 export default db;
