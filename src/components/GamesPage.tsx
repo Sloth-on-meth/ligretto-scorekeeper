@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Game, Player } from '../types';
 import GameView from './GameView';
@@ -11,7 +11,11 @@ interface ParsedImportGame {
 
 interface Props {
   canEdit: boolean;
-  homeSignal?: number;
+}
+
+function winnerLabel(winners: string[]) {
+  if (winners.length === 1) return `${winners[0]} wins!`;
+  return `Tie: ${winners.join(' & ')}`;
 }
 
 function parseImportedGame(text: string): ParsedImportGame {
@@ -57,31 +61,44 @@ function parseImportedGame(text: string): ParsedImportGame {
   return { playerNames, rounds };
 }
 
-export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
+export default function GamesPage({ canEdit }: Props) {
   const [games, setGames] = useState<Game[]>([]);
   const [trashedGames, setTrashedGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [selectedPlayers, setSelectedPlayers] = useState<number[]>([]);
   const [activeGameId, setActiveGameId] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [listError, setListError] = useState('');
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState('');
   const [showTrash, setShowTrash] = useState(false);
 
-  const load = () => {
-    api.games.list().then(setGames);
-    api.games.trash().then(setTrashedGames);
-    api.players.list().then(setPlayers);
+  const load = useCallback(() => {
+    Promise.all([api.games.list(), api.games.trash(), api.players.list()])
+      .then(([active, trashed, all]) => {
+        setGames(active);
+        setTrashedGames(trashed);
+        setPlayers(all);
+        setListError('');
+      })
+      .catch(err => setListError((err as Error).message));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Ignore selections for players that no longer exist (e.g. after a delete elsewhere).
+  const selected = selectedPlayers.filter(id => players.some(p => p.id === id));
+
+  const runAction = async (action: () => Promise<unknown>) => {
+    setListError('');
+    try {
+      await action();
+      load();
+    } catch (err) {
+      setListError((err as Error).message);
+      load();
+    }
   };
-
-  useEffect(() => { load(); }, []);
-
-  useEffect(() => {
-    setActiveGameId(null);
-    setShowTrash(false);
-    setError('');
-    setImportError('');
-  }, [homeSignal]);
 
   if (activeGameId !== null) {
     return <GameView gameId={activeGameId} canEdit={canEdit} onBack={() => { setActiveGameId(null); load(); }} />;
@@ -95,9 +112,9 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
 
   const startGame = async () => {
     setError('');
-    if (selectedPlayers.length < 2) return setError('Select at least 2 players');
+    if (selected.length < 2) return setError('Select at least 2 players');
     try {
-      const game = await api.games.create(selectedPlayers);
+      const game = await api.games.create(selected);
       setSelectedPlayers([]);
       load();
       setActiveGameId(game.id);
@@ -106,29 +123,22 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
     }
   };
 
-  const trashGame = async (id: number) => {
+  const trashGame = (id: number) => {
     const confirmed = window.confirm(
-      'ARE YOU ABSOLUTELY SURE YOU WANT TO MOVE THIS GAME TO THE TRASH?\n\nYou can still restore it later.'
+      'Move this game to the trash?\n\nYou can still restore it later. Trashed games are excluded from stats.'
     );
     if (!confirmed) return;
-
-    await api.games.trashOne(id);
-    load();
+    return runAction(() => api.games.trashOne(id));
   };
 
-  const restoreGame = async (id: number) => {
-    await api.games.restore(id);
-    load();
-  };
+  const restoreGame = (id: number) => runAction(() => api.games.restore(id));
 
-  const permanentlyDeleteGame = async (id: number) => {
+  const permanentlyDeleteGame = (id: number) => {
     const confirmed = window.confirm(
-      'ARE YOU ABSOLUTELY SURE YOU WANT TO PERMANENTLY DELETE?\n\nThis will permanently erase the game, all of its rounds, and all of its scores. This cannot be undone.'
+      'Permanently delete this game?\n\nThis erases the game, all of its rounds, and all of its scores. This cannot be undone.'
     );
     if (!confirmed) return;
-
-    await api.games.delete(id);
-    load();
+    return runAction(() => api.games.delete(id));
   };
 
   const importGame = async () => {
@@ -154,6 +164,12 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
         </p>
       </div>
 
+      {listError && (
+        <div role="alert" className="rounded-xl px-4 py-3 mb-4 text-sm" style={{ backgroundColor: '#2a1010', color: '#fca5a5' }}>
+          {listError}
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] mb-6">
         {/* New game panel */}
         <div className="rounded-2xl p-4 sm:p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
@@ -168,7 +184,7 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
               <div className="flex flex-wrap gap-2 mb-5">
                 {players.map((p, i) => {
                   const c = PLAYER_COLORS[i % PLAYER_COLORS.length];
-                  const sel = selectedPlayers.includes(p.id);
+                  const sel = selected.includes(p.id);
                   return (
                     <button
                       key={p.id}
@@ -190,14 +206,14 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
                   );
                 })}
               </div>
-              {error && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{error}</p>}
+              {error && <p className="text-sm mb-3" style={{ color: '#f87171' }} role="alert">{error}</p>}
               <button
                 onClick={startGame}
-                disabled={selectedPlayers.length < 2}
+                disabled={selected.length < 2}
                 className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
                 style={{ backgroundColor: '#e02020', color: '#fff' }}
               >
-                Start — {selectedPlayers.length} Players
+                Start — {selected.length} Players
               </button>
             </>
           )}
@@ -216,7 +232,7 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
               className="w-full rounded-xl px-4 py-3 text-sm font-medium resize-y min-h-44 focus:outline-none mb-4"
               style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
             />
-            {importError && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{importError}</p>}
+            {importError && <p className="text-sm mb-3" style={{ color: '#f87171' }} role="alert">{importError}</p>}
             <button
               onClick={importGame}
               disabled={!importText.trim()}
@@ -234,14 +250,14 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
         {games.map(g => (
           <div key={g.id}
             className="rounded-xl overflow-hidden"
-            style={{ border: `1px solid ${g.winner_name ? '#e02020' : border}` }}
+            style={{ border: `1px solid ${g.winners.length > 0 ? '#e02020' : border}` }}
           >
             {/* Winner banner for finished games */}
-            {g.winner_name && (
+            {g.winners.length > 0 && (
               <div className="flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest"
                 style={{ backgroundColor: '#e02020', color: '#fff' }}>
-                <span>🏆</span>
-                <span>{g.winner_name} wins!</span>
+                <span aria-hidden="true">🏆</span>
+                <span>{winnerLabel(g.winners)}</span>
               </div>
             )}
 
@@ -265,6 +281,7 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
                 <button
                   type="button"
                   onClick={() => setActiveGameId(g.id)}
+                  aria-label={`Open game ${g.id}`}
                   className="w-full sm:w-auto text-sm font-black uppercase tracking-wide px-4 py-2 rounded-lg"
                   style={{ backgroundColor: '#e02020', color: '#fff' }}
                 >
@@ -273,6 +290,7 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
                 {canEdit && (
                   <button
                     onClick={() => trashGame(g.id)}
+                    aria-label={`Move game ${g.id} to trash`}
                     className="text-xs font-medium transition-colors whitespace-nowrap"
                     style={{ color: muted }}
                     onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
@@ -312,6 +330,7 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
             <button
               type="button"
               onClick={() => setShowTrash(prev => !prev)}
+              aria-expanded={showTrash}
               className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wide"
               style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
             >
@@ -336,6 +355,7 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <button
                         onClick={() => restoreGame(g.id)}
+                        aria-label={`Restore game ${g.id}`}
                         className="text-xs font-black uppercase tracking-wide px-3 py-1.5 rounded-lg"
                         style={{ backgroundColor: '#15502a', color: '#4ade80', border: '1px solid #1a6634' }}
                       >
@@ -343,6 +363,7 @@ export default function GamesPage({ canEdit, homeSignal = 0 }: Props) {
                       </button>
                       <button
                         onClick={() => permanentlyDeleteGame(g.id)}
+                        aria-label={`Permanently delete game ${g.id}`}
                         className="text-xs font-medium transition-colors"
                         style={{ color: '#fca5a5' }}
                         onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}

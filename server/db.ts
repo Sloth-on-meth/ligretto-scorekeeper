@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { toTitleCase } from './logic.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const defaultDbPath = path.join(__dirname, '..', 'data', 'ligretto.db');
@@ -11,14 +12,6 @@ const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
-
-function toTitleCase(name: string) {
-  return name
-    .trim()
-    .split(/\s+/)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(' ');
-}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS players (
@@ -56,6 +49,10 @@ db.exec(`
     score INTEGER NOT NULL,
     UNIQUE (round_id, player_id)
   );
+
+  CREATE INDEX IF NOT EXISTS idx_game_players_player ON game_players(player_id);
+  CREATE INDEX IF NOT EXISTS idx_rounds_game ON rounds(game_id);
+  CREATE INDEX IF NOT EXISTS idx_round_scores_player ON round_scores(player_id);
 
   CREATE TRIGGER IF NOT EXISTS prevent_player_delete_with_history
   BEFORE DELETE ON players

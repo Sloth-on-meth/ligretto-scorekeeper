@@ -10,6 +10,7 @@ type Tab = 'games' | 'players' | 'stats';
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('games');
+  // Bumping this remounts GamesPage, which resets it to the game list.
   const [gamesHomeSignal, setGamesHomeSignal] = useState(0);
   const [auth, setAuth] = useState<AuthSession>({ authenticated: false, role: null });
   const [authLoading, setAuthLoading] = useState(true);
@@ -37,9 +38,12 @@ export default function App() {
   };
 
   const logout = async () => {
-    const session = await api.auth.logout();
-    setAuth(session);
-    setAuthError('');
+    try {
+      setAuth(await api.auth.logout());
+      setAuthError('');
+    } catch (err) {
+      setAuthError((err as Error).message);
+    }
   };
 
   const goHome = () => {
@@ -81,11 +85,12 @@ export default function App() {
 
           {/* Nav tabs */}
           <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
-            <nav className="flex items-stretch gap-0 overflow-x-auto scrollbar-none">
+            <nav aria-label="Main" className="flex items-stretch gap-0 overflow-x-auto scrollbar-none">
               {(['games', 'players', 'stats'] as Tab[]).map(t => (
                 <button
                   type="button"
                   key={t}
+                  aria-current={tab === t ? 'page' : undefined}
                   onClick={() => setTab(t)}
                   className="px-4 py-2 text-sm font-bold capitalize transition-all relative whitespace-nowrap"
                   style={tab === t
@@ -126,6 +131,7 @@ export default function App() {
                     if (authError) setAuthError('');
                   }}
                   placeholder="Admin password"
+                  aria-label="Admin password"
                   className="rounded-xl px-3 py-2 text-sm focus:outline-none flex-1 md:w-44"
                   style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
                 />
@@ -151,7 +157,7 @@ export default function App() {
           </div>
         )}
 
-        {tab === 'games' && <GamesPage canEdit={canEdit} homeSignal={gamesHomeSignal} />}
+        {tab === 'games' && <GamesPage key={gamesHomeSignal} canEdit={canEdit} />}
         {tab === 'players' && <PlayersPage canEdit={canEdit} />}
         {tab === 'stats' && <StatsPage />}
       </main>

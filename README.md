@@ -23,14 +23,14 @@ a dead-simple webapp you run locally to track [Ligretto](https://en.wikipedia.or
 ```
 🎮  multi-game sessions     start, track, finish, repeat
 📊  live scoreboard         sorted by total, per-round breakdown
-🏆  winner tracking         automatically crowns the winner on finish
+🏆  winner tracking         crowns the winner on finish (ties share the trophy)
 ⚡  two input modes         formula (played − hand×2) or direct score entry
 📈  player stats            lifetime totals, avg per round, best/worst
 📤  csv export              download any game as a spreadsheet
 📥  tabular import          paste TSV scores to import a finished game
 🔐  read-only by default    sign in to make changes
 📱  mobile-friendly         big tap targets, numeric keyboard on phones
-🗑️  full edit control       delete rounds or entire games at any time
+🗑️  full edit control       delete rounds, rename players, trash and restore games
 💾  local sqlite            one file, zero dependencies on the internet
 ```
 
@@ -98,13 +98,17 @@ open **http://localhost:3001**.
 
 the app runs as a single container that serves both the frontend and API. sqlite data is stored in `./data/ligretto.db` on the host machine.
 
-you can override the admin password and session secret with environment variables:
+**change the default password before you expose the server.** the app logs a warning on startup while the defaults are in use. you can override the admin password and session secret with environment variables:
 
 ```bash
 AUTH_PASSWORD=your-password
 SESSION_SECRET=your-random-secret
 docker compose up -d --build
 ```
+
+if you serve the app over https, also set `COOKIE_SECURE=true` so the session cookie is only sent over tls.
+
+sign-in attempts are limited to 10 per 15 minutes per client address.
 
 to update after pulling new repo changes:
 
@@ -115,13 +119,26 @@ docker compose up -d --build
 
 if you later publish this image to a registry, `docker compose pull && docker compose up -d` will work too. for a local source checkout, `--build` is the important part because `docker compose pull` does not rebuild from updated files.
 
+### configuration
+
+| variable | default | purpose |
+|---|---|---|
+| `AUTH_PASSWORD` | `ligretto-admin` | admin sign-in password |
+| `SESSION_SECRET` | `ligretto-dev-session-secret` | signs session cookies |
+| `COOKIE_SECURE` | unset | set to `true` to mark the session cookie `Secure` (https only) |
+| `DB_PATH` | `data/ligretto.db` | sqlite file location |
+| `PORT` | `3001` | api / production server port |
+
 ### scripts
 
 ```bash
-npm run dev      # frontend + backend, watch mode
-npm run build    # production build
-npm run server   # backend only
-npm run preview  # preview the production build
+npm run dev        # frontend + backend, watch mode
+npm run build      # type-check + production build
+npm run typecheck  # type-check frontend and server without emitting
+npm run lint       # eslint
+npm test           # server unit tests (node:test)
+npm run server     # backend only
+npm run preview    # preview the production build
 ```
 
 ---
@@ -132,7 +149,9 @@ npm run preview  # preview the production build
 ligretto-scorekeeper/
 │
 ├── server/
-│   ├── db.ts          # schema + sqlite connection
+│   ├── db.ts          # schema, migrations + sqlite connection
+│   ├── logic.ts       # validation, scoring and winner rules (pure, tested)
+│   ├── logic.test.ts  # unit tests for logic.ts
 │   └── index.ts       # express api
 │
 ├── src/
@@ -154,12 +173,14 @@ ligretto-scorekeeper/
 ## schema
 
 ```sql
-players      (id, name, created_at)
-games        (id, started_at, finished_at)
+players      (id, name, created_at)                       -- names are unique, case-insensitive
+games        (id, started_at, finished_at, deleted_at)    -- deleted_at set = in the trash
 game_players (game_id, player_id)
-rounds       (id, game_id, round_number, created_at)
+rounds       (id, game_id, round_number, created_at)      -- unique per game
 round_scores (id, round_id, player_id, cards_played, cards_in_hand, score)
 ```
+
+round rules enforced by the api: every player in the game scores exactly once per round, card counts are whole numbers (played 0–40, in hand 0–10), and finished games are locked.
 
 ---
 

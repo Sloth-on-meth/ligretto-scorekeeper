@@ -14,12 +14,19 @@ function formatSigned(value: number | null) {
 
 export default function StatsPage() {
   const [stats, setStats] = useState<PlayerStats[]>([]);
+  const [error, setError] = useState('');
 
-  useEffect(() => { api.stats.list().then(setStats); }, []);
+  useEffect(() => {
+    api.stats.list()
+      .then(setStats)
+      .catch(err => setError((err as Error).message));
+  }, []);
 
   return (
     <div>
       <h2 className="text-2xl font-black mb-6 uppercase tracking-wide">Statistics</h2>
+
+      {error && <p className="text-sm mb-4" style={{ color: '#f87171' }} role="alert">Could not load statistics: {error}</p>}
 
       {stats.length === 0 ? (
         <div className="text-center py-16" style={{ color: muted }}>

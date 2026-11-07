@@ -17,8 +17,9 @@ export interface Game {
   finished_at: string | null;
   deleted_at: string | null;
   round_count?: number;
-  player_names?: string;
-  winner_name?: string | null;
+  player_names?: string | null;
+  /** Everyone tied for the top total in a finished game; empty otherwise. */
+  winners: string[];
 }
 
 export interface RoundScore {

@@ -25,6 +25,7 @@ export const api = {
   players: {
     list: () => req<Player[]>('/players'),
     create: (name: string) => req<Player>('/players', { method: 'POST', body: JSON.stringify({ name }) }),
+    rename: (id: number, name: string) => req<Player>(`/players/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
     delete: (id: number) => req<void>(`/players/${id}`, { method: 'DELETE' }),
   },
   games: {

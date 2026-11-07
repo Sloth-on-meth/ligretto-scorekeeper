@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import type { GameDetail, RoundScore } from '../types';
 import { PLAYER_COLORS, surface, border, muted } from '../theme';
@@ -51,22 +51,30 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
   const [formulaInputs, setFormulaInputs] = useState<Record<number, { cards_played: string; cards_in_hand: string }>>({});
   const [directInputs, setDirectInputs] = useState<Record<number, string>>({});
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
-  const load = () => api.games.get(gameId).then(d => {
-    setDetail(d);
-    const fi: typeof formulaInputs = {};
-    const di: typeof directInputs = {};
-    d.players.forEach(p => {
-      fi[p.id] = { cards_played: '', cards_in_hand: '' };
-      di[p.id] = '';
-    });
-    setFormulaInputs(fi);
-    setDirectInputs(di);
-  });
+  const load = useCallback(() => api.games.get(gameId)
+    .then(d => {
+      setDetail(d);
+      setLoadError('');
+      const fi: Record<number, { cards_played: string; cards_in_hand: string }> = {};
+      const di: Record<number, string> = {};
+      d.players.forEach(p => {
+        fi[p.id] = { cards_played: '', cards_in_hand: '' };
+        di[p.id] = '';
+      });
+      setFormulaInputs(fi);
+      setDirectInputs(di);
+    })
+    .catch(err => setLoadError((err as Error).message)), [gameId]);
 
-  useEffect(() => { load(); }, [gameId]);
+  useEffect(() => { load(); }, [load]);
 
-  if (!detail) return <p style={{ color: muted }}>Loading…</p>;
+  if (!detail) {
+    return loadError
+      ? <p className="text-sm" style={{ color: '#f87171' }} role="alert">Could not load game: {loadError}</p>
+      : <p style={{ color: muted }}>Loading…</p>;
+  }
 
   const { game, players, rounds } = detail;
 
@@ -85,6 +93,12 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
   });
 
   const sortedPlayers = [...players].sort((a, b) => (totals[b.id] ?? 0) - (totals[a.id] ?? 0));
+  const topTotal = players.length > 0 ? Math.max(...players.map(p => totals[p.id] ?? 0)) : 0;
+  // Everyone on the top total wins, so ties share the trophy.
+  const isWinner = (playerId: number) =>
+    Boolean(game.finished_at) && rounds.length > 0 && (totals[playerId] ?? 0) === topTotal;
+  // Next round number matches what the server assigns (max + 1), even after deletions.
+  const nextRoundNumber = roundNumbers.length > 0 ? roundNumbers[roundNumbers.length - 1] + 1 : 1;
   const playerColorIndex: Record<number, number> = {};
   players.forEach((p, i) => { playerColorIndex[p.id] = i % PLAYER_COLORS.length; });
 
@@ -114,14 +128,26 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
     }
   };
 
-  const deleteRound = async (roundId: number) => {
-    await api.rounds.delete(gameId, roundId);
-    load();
+  const deleteRound = async (roundNumber: number, roundId: number) => {
+    if (!window.confirm(`Delete round ${roundNumber}? Its scores will be removed from the game and stats.`)) return;
+    setError('');
+    try {
+      await api.rounds.delete(gameId, roundId);
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   const finishGame = async () => {
-    await api.games.finish(gameId);
-    load();
+    if (!window.confirm('Finish this game? Finished games are locked and rounds can no longer be added or removed.')) return;
+    setError('');
+    try {
+      await api.games.finish(gameId);
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   const scoreColor = (s: number) => s >= 0 ? '#4ade80' : '#f87171';
@@ -164,6 +190,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
           {roundNumbers.length > 0 && (
             <button
               onClick={() => exportCSV(detail)}
+              aria-label="Export game as CSV"
               className="px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wide"
               style={{ backgroundColor: surface, border: `1px solid ${border}`, color: muted }}
               onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
@@ -208,7 +235,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                       <div className="flex flex-col items-center gap-1">
                         <div className="rounded-md font-black text-xs flex items-center justify-center"
                           style={{ width: 26, height: 34, backgroundColor: c.bg, color: c.text, boxShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>
-                          {game.finished_at && rank === 0 ? '🏆' : rank + 1}
+                          {isWinner(p.id) ? '🏆' : rank + 1}
                         </div>
                         <span className="font-bold text-xs">{p.name}</span>
                       </div>
@@ -239,9 +266,10 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                   })}
                   {canEdit && !game.finished_at && (
                     <td className="py-2.5 pr-3 text-center">
-                      <button onClick={() => deleteRound(roundIdMap[r])}
+                      <button onClick={() => deleteRound(r, roundIdMap[r])}
                         className="text-xs transition-colors"
                         style={{ color: border }}
+                        aria-label={`Delete round ${r}`}
                         title="Delete round"
                         onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
                         onMouseLeave={e => (e.currentTarget.style.color = border)}>
@@ -282,7 +310,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
         <div className="rounded-2xl p-4" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs font-black uppercase tracking-widest" style={{ color: muted }}>
-              Round {roundNumbers.length + 1}
+              Round {nextRoundNumber}
             </p>
             <div className="flex rounded-xl overflow-hidden text-xs font-black uppercase tracking-wide"
               style={{ border: `1px solid ${border}` }}>
@@ -340,12 +368,14 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
 
                     {mode === 'formula' ? (
                       <>
-                        <input type="number" min="0" inputMode="numeric" placeholder="0"
+                        <input type="number" min="0" max="40" inputMode="numeric" placeholder="0"
+                          aria-label={`${p.name} cards played`}
                           style={inputStyle}
                           value={fi?.cards_played ?? ''}
                           onChange={e => setFormulaInputs(prev => ({ ...prev, [p.id]: { ...prev[p.id], cards_played: e.target.value } }))}
                           required />
-                        <input type="number" min="0" inputMode="numeric" placeholder="0"
+                        <input type="number" min="0" max="10" inputMode="numeric" placeholder="0"
+                          aria-label={`${p.name} cards in hand`}
                           style={inputStyle}
                           value={fi?.cards_in_hand ?? ''}
                           onChange={e => setFormulaInputs(prev => ({ ...prev, [p.id]: { ...prev[p.id], cards_in_hand: e.target.value } }))}
@@ -358,6 +388,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                       </>
                     ) : (
                       <input type="number" inputMode="numeric" placeholder="0"
+                        aria-label={`${p.name} score`}
                         style={inputStyle}
                         value={directInputs[p.id] ?? ''}
                         onChange={e => setDirectInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
@@ -368,7 +399,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
               })}
             </div>
 
-            {error && <p className="text-sm mb-3" style={{ color: '#f87171' }}>{error}</p>}
+            {error && <p className="text-sm mb-3" style={{ color: '#f87171' }} role="alert">{error}</p>}
             <button type="submit"
               className="w-full py-4 rounded-xl font-black uppercase tracking-widest text-base"
               style={{ backgroundColor: '#e02020', color: '#fff' }}>

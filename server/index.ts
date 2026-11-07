@@ -5,43 +5,47 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import db from './db.js';
+import {
+  DEFAULT_ADMIN_PASSWORD,
+  DEFAULT_SESSION_SECRET,
+  MAX_ABS_SCORE,
+  createRateLimiter,
+  findWinners,
+  normalizePlayerIds,
+  normalizePlayerName,
+  parseRoundScores,
+} from './logic.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(__dirname, '..', 'dist');
 const indexHtmlPath = path.join(distDir, 'index.html');
 const SESSION_COOKIE = 'ligretto_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
-const AUTH_PASSWORD = process.env.AUTH_PASSWORD ?? 'ligretto-admin';
-const SESSION_SECRET = process.env.SESSION_SECRET ?? 'ligretto-dev-session-secret';
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD ?? DEFAULT_ADMIN_PASSWORD;
+const SESSION_SECRET = process.env.SESSION_SECRET ?? DEFAULT_SESSION_SECRET;
+// Set COOKIE_SECURE=true when the app is served over HTTPS.
+const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+
+if (AUTH_PASSWORD === DEFAULT_ADMIN_PASSWORD) {
+  console.warn('[security] Using the default admin password. Set AUTH_PASSWORD before exposing this server.');
+}
+if (SESSION_SECRET === DEFAULT_SESSION_SECRET) {
+  console.warn('[security] Using the default session secret. Set SESSION_SECRET before exposing this server.');
+}
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
+
+const loginLimiter = createRateLimiter(LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS);
 
 type Role = 'admin';
 
 interface SessionPayload {
   role: Role;
   exp: number;
-}
-
-function normalizePlayerIds(value: unknown): number[] | null {
-  if (!Array.isArray(value)) return null;
-
-  const ids = value.map(id => Number(id));
-  if (ids.some(id => !Number.isInteger(id) || id <= 0)) return null;
-
-  return [...new Set(ids)];
-}
-
-function normalizePlayerName(value: unknown): string {
-  if (typeof value !== 'string') return '';
-
-  return value
-    .trim()
-    .split(/\s+/)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(' ');
 }
 
 interface ImportedRoundScore {
@@ -51,6 +55,13 @@ interface ImportedRoundScore {
 
 interface ImportedRound {
   scores: ImportedRoundScore[];
+}
+
+interface GameRow {
+  id: number;
+  started_at: string;
+  finished_at: string | null;
+  deleted_at: string | null;
 }
 
 function getRouteParam(value: string | string[]) {
@@ -81,7 +92,11 @@ function parseCookies(header?: string) {
   return header.split(';').reduce<Record<string, string>>((cookies, part) => {
     const [rawName, ...rawValue] = part.trim().split('=');
     if (!rawName) return cookies;
-    cookies[rawName] = decodeURIComponent(rawValue.join('='));
+    try {
+      cookies[rawName] = decodeURIComponent(rawValue.join('='));
+    } catch {
+      // Ignore malformed cookie encodings rather than failing the request.
+    }
     return cookies;
   }, {});
 }
@@ -114,20 +129,26 @@ function getSession(req: express.Request) {
   return decodeSession(cookies[SESSION_COOKIE]);
 }
 
-function setSessionCookie(res: express.Response, payload: SessionPayload) {
-  const token = encodeSession(payload);
-  const cookie = [
-    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+function cookieAttributes(maxAgeSeconds: number) {
+  return [
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
-    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+    `Max-Age=${maxAgeSeconds}`,
+    ...(COOKIE_SECURE ? ['Secure'] : []),
   ].join('; ');
-  res.setHeader('Set-Cookie', cookie);
+}
+
+function setSessionCookie(res: express.Response, payload: SessionPayload) {
+  const token = encodeSession(payload);
+  res.setHeader(
+    'Set-Cookie',
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}; ${cookieAttributes(Math.floor(SESSION_TTL_MS / 1000))}`,
+  );
 }
 
 function clearSessionCookie(res: express.Response) {
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; ${cookieAttributes(0)}`);
 }
 
 function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -139,39 +160,65 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
 }
 
 function passwordsMatch(input: string, expected: string) {
-  const inputBuffer = Buffer.from(input, 'utf8');
-  const expectedBuffer = Buffer.from(expected, 'utf8');
-  if (inputBuffer.length !== expectedBuffer.length) return false;
-  return crypto.timingSafeEqual(inputBuffer, expectedBuffer);
+  // Hash both sides so the comparison is constant-time regardless of length.
+  const inputDigest = crypto.createHash('sha256').update(input, 'utf8').digest();
+  const expectedDigest = crypto.createHash('sha256').update(expected, 'utf8').digest();
+  return crypto.timingSafeEqual(inputDigest, expectedDigest);
+}
+
+function getGameById(gameId: string | number) {
+  return db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as GameRow | undefined;
+}
+
+function getWinnersByGame(): Map<number, string[]> {
+  const rows = db.prepare(`
+    SELECT gp.game_id AS game_id, p.name AS name, COALESCE(SUM(rs.score), 0) AS total
+    FROM game_players gp
+    JOIN games g ON g.id = gp.game_id AND g.finished_at IS NOT NULL
+    JOIN players p ON p.id = gp.player_id
+    JOIN rounds r ON r.game_id = gp.game_id
+    LEFT JOIN round_scores rs ON rs.round_id = r.id AND rs.player_id = gp.player_id
+    GROUP BY gp.game_id, gp.player_id
+  `).all() as { game_id: number; name: string; total: number }[];
+
+  const byGame = new Map<number, { name: string; total: number }[]>();
+  for (const row of rows) {
+    const list = byGame.get(row.game_id) ?? [];
+    list.push({ name: row.name, total: row.total });
+    byGame.set(row.game_id, list);
+  }
+
+  const winners = new Map<number, string[]>();
+  for (const [gameId, totals] of byGame) {
+    winners.set(gameId, findWinners(totals));
+  }
+  return winners;
 }
 
 function getGames(includeDeleted: boolean) {
-  return db.prepare(`
+  const games = db.prepare(`
     SELECT g.*,
       (SELECT COUNT(*) FROM rounds WHERE game_id = g.id) AS round_count,
       (SELECT GROUP_CONCAT(p.name, ', ')
        FROM game_players gp JOIN players p ON p.id = gp.player_id
-       WHERE gp.game_id = g.id) AS player_names,
-      CASE WHEN g.finished_at IS NOT NULL THEN (
-        SELECT p.name FROM players p
-        JOIN game_players gp ON gp.player_id = p.id
-        JOIN round_scores rs ON rs.player_id = p.id
-        JOIN rounds r ON r.id = rs.round_id
-        WHERE gp.game_id = g.id AND r.game_id = g.id
-        GROUP BY p.id
-        ORDER BY SUM(rs.score) DESC
-        LIMIT 1
-      ) END AS winner_name
+       WHERE gp.game_id = g.id) AS player_names
     FROM games g
     WHERE g.deleted_at IS ${includeDeleted ? 'NOT' : ''} NULL
     ORDER BY COALESCE(g.deleted_at, g.started_at) DESC, g.id DESC
-  `).all();
+  `).all() as (GameRow & { round_count: number; player_names: string | null })[];
+
+  const winners = getWinnersByGame();
+  return games.map(game => ({ ...game, winners: winners.get(game.id) ?? [] }));
 }
 
-function getGameById(gameId: string | number) {
-  return db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as
-    | { id: number; finished_at: string | null; deleted_at: string | null }
-    | undefined;
+function getRoundRows(roundId: number | bigint) {
+  return db.prepare(`
+    SELECT r.*, rs.player_id, rs.cards_played, rs.cards_in_hand, rs.score
+    FROM rounds r
+    JOIN round_scores rs ON rs.round_id = r.id
+    WHERE r.id = ?
+    ORDER BY rs.player_id
+  `).all(roundId);
 }
 
 // --- Auth ---
@@ -185,6 +232,11 @@ app.get('/api/auth/session', (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
+  const ip = req.ip ?? 'unknown';
+  if (!loginLimiter.hit(ip)) {
+    return res.status(429).json({ error: 'Too many sign-in attempts. Try again in a few minutes.' });
+  }
+
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   if (!password) {
     return res.status(400).json({ error: 'Password is required' });
@@ -194,6 +246,7 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid password' });
   }
 
+  loginLimiter.reset(ip);
   const payload: SessionPayload = {
     role: 'admin',
     exp: Date.now() + SESSION_TTL_MS,
@@ -226,8 +279,28 @@ app.post('/api/players', requireAdmin, (req, res) => {
   }
 });
 
+app.patch('/api/players/:id', requireAdmin, (req, res) => {
+  const playerId = Number(getRouteParam(req.params.id));
+  if (!Number.isInteger(playerId) || playerId <= 0) {
+    return res.status(400).json({ error: 'Invalid player id' });
+  }
+
+  const normalizedName = normalizePlayerName(req.body?.name);
+  if (!normalizedName) return res.status(400).json({ error: 'Name is required' });
+
+  const player = db.prepare('SELECT id FROM players WHERE id = ?').get(playerId);
+  if (!player) return res.status(404).json({ error: 'Player not found' });
+
+  try {
+    db.prepare('UPDATE players SET name = ? WHERE id = ?').run(normalizedName, playerId);
+  } catch {
+    return res.status(409).json({ error: 'Player name already exists' });
+  }
+  res.json(db.prepare('SELECT * FROM players WHERE id = ?').get(playerId));
+});
+
 app.delete('/api/players/:id', requireAdmin, (req, res) => {
-  const playerId = Number(req.params.id);
+  const playerId = Number(getRouteParam(req.params.id));
   if (!Number.isInteger(playerId) || playerId <= 0) {
     return res.status(400).json({ error: 'Invalid player id' });
   }
@@ -333,8 +406,13 @@ app.post('/api/games/import', requireAdmin, (req, res) => {
 
     for (const score of round.scores) {
       const playerName = normalizePlayerName(score?.player_name);
-      if (!playerNames.includes(playerName) || !Number.isInteger(score?.score)) {
-        return res.status(400).json({ error: 'Imported scores must use known players and integer values' });
+      const value = score?.score;
+      if (
+        !playerNames.includes(playerName)
+        || !Number.isInteger(value)
+        || Math.abs(value as number) > MAX_ABS_SCORE
+      ) {
+        return res.status(400).json({ error: 'Imported scores must use known players and whole-number values' });
       }
     }
   }
@@ -395,9 +473,9 @@ app.patch('/api/games/:id/finish', requireAdmin, (req, res) => {
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Cannot finish a deleted game' });
 
-  db.prepare("UPDATE games SET finished_at = datetime('now') WHERE id = ?").run(gameId);
-  const updatedGame = getGameById(gameId);
-  res.json(updatedGame);
+  // Idempotent: finishing an already-finished game keeps its original finish time.
+  db.prepare("UPDATE games SET finished_at = datetime('now') WHERE id = ? AND finished_at IS NULL").run(gameId);
+  res.json(getGameById(gameId));
 });
 
 app.patch('/api/games/:id/trash', requireAdmin, (req, res) => {
@@ -407,8 +485,7 @@ app.patch('/api/games/:id/trash', requireAdmin, (req, res) => {
   if (game.deleted_at) return res.status(409).json({ error: 'Game is already in the trash' });
 
   db.prepare("UPDATE games SET deleted_at = datetime('now') WHERE id = ?").run(gameId);
-  const updatedGame = getGameById(gameId);
-  res.json(updatedGame);
+  res.json(getGameById(gameId));
 });
 
 app.patch('/api/games/:id/restore', requireAdmin, (req, res) => {
@@ -418,8 +495,7 @@ app.patch('/api/games/:id/restore', requireAdmin, (req, res) => {
   if (!game.deleted_at) return res.status(409).json({ error: 'Game is not in the trash' });
 
   db.prepare('UPDATE games SET deleted_at = NULL WHERE id = ?').run(gameId);
-  const updatedGame = getGameById(gameId);
-  res.json(updatedGame);
+  res.json(getGameById(gameId));
 });
 
 app.delete('/api/games/:id', requireAdmin, (req, res) => {
@@ -463,43 +539,36 @@ app.post('/api/games/:id/rounds', requireAdmin, (req, res) => {
   const game = getGameById(gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });
+  if (game.finished_at) return res.status(409).json({ error: 'Cannot add rounds to a finished game' });
 
-  const { scores } = req.body;
-  // scores: [{ player_id, score, cards_played?, cards_in_hand? }]
-  if (!Array.isArray(scores) || scores.length === 0) {
-    return res.status(400).json({ error: 'Scores required' });
-  }
+  const gamePlayerIds = (db.prepare(
+    'SELECT player_id FROM game_players WHERE game_id = ?'
+  ).all(gameId) as { player_id: number }[]).map(row => row.player_id);
 
-  const lastRound = db.prepare(
-    'SELECT MAX(round_number) as max FROM rounds WHERE game_id = ?'
-  ).get(gameId) as { max: number | null };
-  const nextRound = (lastRound.max ?? 0) + 1;
+  const parsed = parseRoundScores(req.body?.scores, gamePlayerIds);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
   const insertRound = db.transaction(() => {
+    const { max } = db.prepare(
+      'SELECT COALESCE(MAX(round_number), 0) AS max FROM rounds WHERE game_id = ?'
+    ).get(gameId) as { max: number };
+
     const roundResult = db.prepare(
       'INSERT INTO rounds (game_id, round_number) VALUES (?, ?)'
-    ).run(gameId, nextRound);
+    ).run(gameId, max + 1);
     const roundId = roundResult.lastInsertRowid;
 
     const insertScore = db.prepare(
       'INSERT INTO round_scores (round_id, player_id, cards_played, cards_in_hand, score) VALUES (?, ?, ?, ?, ?)'
     );
-    for (const s of scores) {
-      const score = s.score ?? (s.cards_played - s.cards_in_hand * 2);
-      insertScore.run(roundId, s.player_id, s.cards_played ?? null, s.cards_in_hand ?? null, score);
+    for (const s of parsed.value) {
+      insertScore.run(roundId, s.player_id, s.cards_played, s.cards_in_hand, s.score);
     }
     return roundId;
   });
 
   const roundId = insertRound();
-  const round = db.prepare(`
-    SELECT r.*, rs.player_id, rs.cards_played, rs.cards_in_hand, rs.score
-    FROM rounds r
-    JOIN round_scores rs ON rs.round_id = r.id
-    WHERE r.id = ?
-  `).all(roundId);
-
-  res.status(201).json(round);
+  res.status(201).json(getRoundRows(roundId));
 });
 
 app.delete('/api/games/:gameId/rounds/:roundId', requireAdmin, (req, res) => {
@@ -508,11 +577,10 @@ app.delete('/api/games/:gameId/rounds/:roundId', requireAdmin, (req, res) => {
   const game = getGameById(gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });
+  if (game.finished_at) return res.status(409).json({ error: 'Cannot change rounds in a finished game' });
 
-  db.prepare('DELETE FROM rounds WHERE id = ? AND game_id = ?').run(
-    roundId,
-    gameId
-  );
+  const result = db.prepare('DELETE FROM rounds WHERE id = ? AND game_id = ?').run(roundId, gameId);
+  if (result.changes === 0) return res.status(404).json({ error: 'Round not found' });
   res.status(204).end();
 });
 
@@ -557,9 +625,15 @@ app.get('/api/stats', (_req, res) => {
     FROM players p
     LEFT JOIN game_counts gc ON gc.player_id = p.id
     LEFT JOIN round_stats rs ON rs.player_id = p.id
-    ORDER BY total_score DESC
+    ORDER BY total_score DESC, p.name
   `).all();
   res.json(stats);
+});
+
+// --- Static frontend + fallbacks ---
+
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
 if (fs.existsSync(distDir)) {
@@ -568,6 +642,21 @@ if (fs.existsSync(distDir)) {
     res.sendFile(indexHtmlPath);
   });
 }
+
+// Keep error responses JSON so the client can always read `error`.
+// Express identifies error middleware by its four-argument signature, so `next` must stay.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const status = (err as { status?: number })?.status;
+  if (status === 400 && err instanceof SyntaxError) {
+    return res.status(400).json({ error: 'Invalid JSON body' });
+  }
+  if (status === 413) {
+    return res.status(413).json({ error: 'Request body too large' });
+  }
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 const PORT = Number(process.env.PORT ?? 3001);
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
