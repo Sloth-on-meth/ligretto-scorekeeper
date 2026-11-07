@@ -76,11 +76,24 @@ open **http://localhost:5173** — that's it.
 
 the API runs on `:3001`, proxied by Vite. the database is created at `data/ligretto.db` on first run (git-ignored, yours forever).
 
-by default, logged-out users can browse everything in read-only mode. to make changes, sign in with the admin password. unless you override it, the default password is:
+### configure passwords
 
-```text
-ligretto-admin
+secrets live in a `.env` file, which is git-ignored. create it from the example and fill in real values before first run:
+
+```bash
+cp .env.example .env
 ```
+
+| variable | required | who it is for |
+|---|---|---|
+| `AUTH_PASSWORD` | yes | **admin**: everything, including editing or deleting rounds, finishing and trashing games, managing players, and importing |
+| `PLAYER_PASSWORD` | no | **player**: start games and enter round scores. Leave empty to turn off player sign-in |
+| `SESSION_SECRET` | yes | signs session cookies. use a long random string, e.g. `openssl rand -hex 32` |
+| `COOKIE_SECURE` | no | set to `true` when served over https |
+
+the app refuses to start if `AUTH_PASSWORD` or `SESSION_SECRET` is missing.
+
+logged-out visitors can browse everything in read-only mode. signing in with the player password lets you start games and enter scores. the admin password unlocks everything else.
 
 ### docker
 
@@ -98,15 +111,7 @@ open **http://localhost:3001**.
 
 the app runs as a single container that serves both the frontend and API. sqlite data is stored in `./data/ligretto.db` on the host machine.
 
-**change the default password before you expose the server.** the app logs a warning on startup while the defaults are in use. you can override the admin password and session secret with environment variables:
-
-```bash
-AUTH_PASSWORD=your-password
-SESSION_SECRET=your-random-secret
-docker compose up -d --build
-```
-
-if you serve the app over https, also set `COOKIE_SECURE=true` so the session cookie is only sent over tls.
+the compose file reads `.env` automatically, so set your passwords there before running `docker compose up -d --build`. the `.env` file is excluded from the docker image.
 
 sign-in attempts are limited to 10 per 15 minutes per client address.
 
@@ -123,8 +128,9 @@ if you later publish this image to a registry, `docker compose pull && docker co
 
 | variable | default | purpose |
 |---|---|---|
-| `AUTH_PASSWORD` | `ligretto-admin` | admin sign-in password |
-| `SESSION_SECRET` | `ligretto-dev-session-secret` | signs session cookies |
+| `AUTH_PASSWORD` | *(required)* | admin sign-in password |
+| `PLAYER_PASSWORD` | unset (player sign-in disabled) | player sign-in password: start games and enter scores |
+| `SESSION_SECRET` | *(required)* | signs session cookies |
 | `COOKIE_SECURE` | unset | set to `true` to mark the session cookie `Secure` (https only) |
 | `DB_PATH` | `data/ligretto.db` | sqlite file location |
 | `PORT` | `3001` | api / production server port |

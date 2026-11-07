@@ -6,8 +6,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import db from './db.js';
 import {
-  DEFAULT_ADMIN_PASSWORD,
-  DEFAULT_SESSION_SECRET,
   MAX_ABS_SCORE,
   createRateLimiter,
   findWinners,
@@ -21,19 +19,25 @@ const distDir = path.join(__dirname, '..', 'dist');
 const indexHtmlPath = path.join(distDir, 'index.html');
 const SESSION_COOKIE = 'ligretto_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
-const AUTH_PASSWORD = process.env.AUTH_PASSWORD ?? DEFAULT_ADMIN_PASSWORD;
-const SESSION_SECRET = process.env.SESSION_SECRET ?? DEFAULT_SESSION_SECRET;
+// Secrets come from the environment (.env in development, compose env_file in Docker).
+// AUTH_PASSWORD  - admin: full access.
+// PLAYER_PASSWORD - players: start games and enter round scores only.
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD ?? '';
+const PLAYER_PASSWORD = process.env.PLAYER_PASSWORD ?? '';
+const SESSION_SECRET = process.env.SESSION_SECRET ?? '';
+
+if (!AUTH_PASSWORD || !SESSION_SECRET) {
+  console.error('Missing AUTH_PASSWORD or SESSION_SECRET. Add them to your .env file (see .env.example).');
+  process.exit(1);
+}
+if (!PLAYER_PASSWORD) {
+  console.warn('PLAYER_PASSWORD is not set, so player sign-in is disabled.');
+}
 // Set COOKIE_SECURE=true when the app is served over HTTPS.
 const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
 
-if (AUTH_PASSWORD === DEFAULT_ADMIN_PASSWORD) {
-  console.warn('[security] Using the default admin password. Set AUTH_PASSWORD before exposing this server.');
-}
-if (SESSION_SECRET === DEFAULT_SESSION_SECRET) {
-  console.warn('[security] Using the default session secret. Set SESSION_SECRET before exposing this server.');
-}
 
 const app = express();
 app.use(cors());
@@ -41,7 +45,7 @@ app.use(express.json({ limit: '100kb' }));
 
 const loginLimiter = createRateLimiter(LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS);
 
-type Role = 'admin';
+type Role = 'admin' | 'player';
 
 interface SessionPayload {
   role: Role;
@@ -117,7 +121,7 @@ function decodeSession(token?: string): SessionPayload | null {
   try {
     const payload = JSON.parse(base64UrlDecode(data)) as SessionPayload;
     if (payload.exp <= Date.now()) return null;
-    if (payload.role !== 'admin') return null;
+    if (payload.role !== 'admin' && payload.role !== 'player') return null;
     return payload;
   } catch {
     return null;
@@ -154,6 +158,15 @@ function clearSessionCookie(res: express.Response) {
 function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   const session = getSession(req);
   if (!session || session.role !== 'admin') {
+    return res.status(session ? 403 : 401).json({ error: session ? 'Admin access required' : 'Sign in required' });
+  }
+  next();
+}
+
+// Players and admins can start games and enter scores.
+function requirePlayer(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const session = getSession(req);
+  if (!session) {
     return res.status(401).json({ error: 'Sign in required' });
   }
   next();
@@ -222,6 +235,17 @@ function getRoundRows(roundId: number | bigint | string) {
   `).all(roundId);
 }
 
+// --- Health (used by Docker healthchecks; no auth, no data) ---
+
+app.get('/api/health', (_req, res) => {
+  try {
+    db.prepare('SELECT 1').get();
+    res.json({ status: 'ok' });
+  } catch {
+    res.status(503).json({ status: 'error' });
+  }
+});
+
 // --- Auth ---
 
 app.get('/api/auth/session', (req, res) => {
@@ -243,13 +267,17 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(400).json({ error: 'Password is required' });
   }
 
-  if (!passwordsMatch(password, AUTH_PASSWORD)) {
+  let role: Role | null = null;
+  if (passwordsMatch(password, AUTH_PASSWORD)) role = 'admin';
+  else if (PLAYER_PASSWORD && passwordsMatch(password, PLAYER_PASSWORD)) role = 'player';
+
+  if (!role) {
     return res.status(401).json({ error: 'Invalid password' });
   }
 
   loginLimiter.reset(ip);
   const payload: SessionPayload = {
-    role: 'admin',
+    role,
     exp: Date.now() + SESSION_TTL_MS,
   };
   setSessionCookie(res, payload);
@@ -334,7 +362,7 @@ app.get('/api/games/trash', (_req, res) => {
   res.json(getGames(true));
 });
 
-app.post('/api/games', requireAdmin, (req, res) => {
+app.post('/api/games', requirePlayer, (req, res) => {
   const playerIds = normalizePlayerIds(req.body?.player_ids);
   if (!playerIds || playerIds.length < 2) {
     return res.status(400).json({ error: 'At least 2 players required' });
@@ -535,7 +563,7 @@ app.get('/api/games/:id', (req, res) => {
 
 // --- Rounds ---
 
-app.post('/api/games/:id/rounds', requireAdmin, (req, res) => {
+app.post('/api/games/:id/rounds', requirePlayer, (req, res) => {
   const gameId = getRouteParam(req.params.id);
   const game = getGameById(gameId);
   if (!game) return res.status(404).json({ error: 'Game not found' });

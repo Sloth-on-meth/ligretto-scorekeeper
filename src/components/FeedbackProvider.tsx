@@ -57,7 +57,7 @@ export default function FeedbackProvider({ children }: { children: ReactNode }) 
     <FeedbackContext.Provider value={{ toast, confirm }}>
       {children}
 
-      <div aria-live="polite" className="fixed bottom-4 left-0 right-0 z-50 flex flex-col items-center gap-2 px-4 pointer-events-none">
+      <div aria-live="polite" className="fixed top-3 left-0 right-0 z-50 flex flex-col items-center gap-2 px-4 pointer-events-none">
         {toasts.map(t => {
           const style = KIND_STYLE[t.kind];
           return (

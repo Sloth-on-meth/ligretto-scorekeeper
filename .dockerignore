@@ -10,3 +10,6 @@ ligretto.db
 .vscode
 .idea
 README.md
+.env
+.env.*
+!.env.example

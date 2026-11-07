@@ -8,6 +8,7 @@ interface Props {
   gameId: number;
   onBack: () => void;
   canEdit: boolean;
+  canPlay: boolean;
 }
 
 function csvCell(value: string | number) {
@@ -60,7 +61,7 @@ const inputStyle: React.CSSProperties = {
   textAlign: 'center',
 };
 
-export default function GameView({ gameId, onBack, canEdit }: Props) {
+export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
   const { toast, confirm } = useFeedback();
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -96,7 +97,9 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
 
   const { game, players, rounds } = detail;
   const isFinished = Boolean(game.finished_at);
-  const canChange = canEdit && !isFinished;
+  // Admins can change rounds and finish the game; players can add rounds.
+  const canAdmin = canEdit && !isFinished;
+  const canScore = canPlay && !isFinished;
 
   const roundNumbers = [...new Set(rounds.map(r => r.round_number))].sort((a, b) => a - b);
   const scoreMap: Record<number, Record<number, RoundScore>> = {};
@@ -253,7 +256,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
               CSV ↓
             </button>
           )}
-          {canChange ? (
+          {canAdmin ? (
             <button onClick={finishGame}
               className="px-4 py-2 rounded-xl text-sm font-black uppercase tracking-wide"
               style={{ backgroundColor: '#15502a', color: '#4ade80', border: '1px solid #1a6634' }}>
@@ -264,12 +267,12 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
               style={{ backgroundColor: '#15502a', color: '#4ade80' }}>
               Finished
             </span>
-          ) : (
+          ) : !canPlay ? (
             <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase"
               style={{ backgroundColor: '#2a2a38', color: muted }}>
               Read-only
             </span>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -309,7 +312,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                       </th>
                     );
                   })}
-                  {canChange && <th style={{ width: 32 }} />}
+                  {canAdmin && <th style={{ width: 32 }} />}
                 </tr>
               </thead>
               <tbody>
@@ -321,7 +324,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                       backgroundColor: isEditingThis ? '#2a1010' : undefined,
                     }}>
                       <td className="sticky left-0 z-[1] py-2.5 px-4" style={{ backgroundColor: isEditingThis ? '#2a1010' : '#111118' }}>
-                        {canChange ? (
+                        {canAdmin ? (
                           <button
                             onClick={() => startEditing(r)}
                             aria-label={`Edit round ${r}`}
@@ -347,7 +350,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                           </td>
                         );
                       })}
-                      {canChange && (
+                      {canAdmin && (
                         <td className="py-2.5 pr-3 text-center">
                           <button onClick={() => deleteRound(r)}
                             className="text-xs transition-colors px-1"
@@ -378,7 +381,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                       </td>
                     );
                   })}
-                  {canChange && <td />}
+                  {canAdmin && <td />}
                 </tr>
               </tbody>
             </table>
@@ -392,12 +395,12 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
       )}
 
       {/* Round entry */}
-      {!canEdit && !isFinished && (
+      {!canPlay && !isFinished && (
         <div className="rounded-2xl p-4" style={{ backgroundColor: surface, border: `1px solid ${border}`, color: muted }}>
-          Sign in to add rounds, edit rounds, or finish this game.
+          Sign in to enter scores for this game.
         </div>
       )}
-      {canChange && (
+      {canScore && (
         <div className="rounded-2xl p-4" style={{
           backgroundColor: surface,
           border: `1px solid ${editingRound !== null ? '#e02020' : border}`,

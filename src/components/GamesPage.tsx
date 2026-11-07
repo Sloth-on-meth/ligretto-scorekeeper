@@ -8,6 +8,7 @@ import { parseImportedGame } from '../lib/importParser';
 
 interface Props {
   canEdit: boolean;
+  canPlay: boolean;
 }
 
 type StatusFilter = 'all' | 'active' | 'finished';
@@ -21,7 +22,7 @@ function playerNamesOf(game: Game) {
   return (game.player_names ?? '').split(', ').filter(Boolean);
 }
 
-export default function GamesPage({ canEdit }: Props) {
+export default function GamesPage({ canEdit, canPlay }: Props) {
   const { toast, confirm } = useFeedback();
   const [games, setGames] = useState<Game[]>([]);
   const [trashedGames, setTrashedGames] = useState<Game[]>([]);
@@ -152,7 +153,7 @@ export default function GamesPage({ canEdit }: Props) {
   };
 
   if (activeGameId !== null) {
-    return <GameView gameId={activeGameId} canEdit={canEdit} onBack={() => { setActiveGameId(null); load(); }} />;
+    return <GameView gameId={activeGameId} canEdit={canEdit} canPlay={canPlay} onBack={() => { setActiveGameId(null); load(); }} />;
   }
 
   const activeCount = games.filter(g => !g.finished_at).length;
@@ -200,7 +201,7 @@ export default function GamesPage({ canEdit }: Props) {
         <div className="rounded-2xl p-4 sm:p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
           <div className="flex items-center justify-between gap-3 mb-4">
             <p className="text-xs font-black uppercase tracking-widest" style={{ color: muted }}>New game</p>
-            {canEdit && canRepeatLineup && (
+            {canPlay && canRepeatLineup && (
               <button type="button" onClick={() => setSelectedPlayers(lastLineupIds)}
                 className="text-xs font-bold underline underline-offset-4 text-white">
                 Repeat last lineup
@@ -208,8 +209,8 @@ export default function GamesPage({ canEdit }: Props) {
             )}
           </div>
 
-          {!canEdit ? (
-            <p className="text-sm" style={{ color: muted }}>Read-only. Sign in to start a game.</p>
+          {!canPlay ? (
+            <p className="text-sm" style={{ color: muted }}>Sign in to start a game.</p>
           ) : players.length < 2 ? (
             <p className="text-sm" style={{ color: muted }}>Add at least 2 players on the Players tab first.</p>
           ) : (
@@ -404,7 +405,7 @@ export default function GamesPage({ canEdit }: Props) {
                 </div>
               ))}
             </div>
-            <p className="text-sm mt-6">No games yet. {canEdit ? 'Start one above.' : 'Sign in to start one.'}</p>
+            <p className="text-sm mt-6">No games yet. {canPlay ? 'Start one above.' : 'Sign in to start one.'}</p>
           </div>
         )}
         {games.length > 0 && visibleGames.length === 0 && (

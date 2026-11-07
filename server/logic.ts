@@ -1,9 +1,6 @@
 // Pure, framework-free helpers shared by the API and the database layer.
 // Kept free of side effects so they can be unit-tested directly.
 
-export const DEFAULT_ADMIN_PASSWORD = 'ligretto-admin';
-export const DEFAULT_SESSION_SECRET = 'ligretto-dev-session-secret';
-
 /** Sanity bounds for a single player's numbers in one round. */
 export const MAX_CARDS = 40; // one Ligretto deck per player
 export const MAX_STACK = 10; // cards left in the Ligretto stack
