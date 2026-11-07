@@ -67,13 +67,13 @@ export default function App() {
     <div className="min-h-screen" style={{ backgroundColor: '#111118', color: '#fff' }}>
       <header style={{ backgroundColor: surface, borderBottom: `1px solid ${border}` }}
         className="sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-2 flex flex-wrap items-center gap-x-4 gap-y-2">
 
           {/* Logo */}
           <button
             type="button"
             onClick={goHome}
-            className="flex items-center gap-0 rounded-xl transition-opacity cursor-pointer self-start"
+            className="flex items-center gap-0 rounded-xl transition-opacity cursor-pointer order-1"
             style={{ backgroundColor: 'transparent' }}
             title="Back to games"
           >
@@ -95,31 +95,14 @@ export default function App() {
             </div>
           </button>
 
-          {/* Nav tabs */}
-          <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
-            <nav aria-label="Main" className="flex items-stretch gap-0 overflow-x-auto scrollbar-none">
-              {(['games', 'players', 'stats'] as Tab[]).map(t => (
-                <button
-                  type="button"
-                  key={t}
-                  aria-current={tab === t ? 'page' : undefined}
-                  onClick={() => selectTab(t)}
-                  className="px-4 py-2 text-sm font-bold capitalize transition-all relative whitespace-nowrap"
-                  style={tab === t
-                    ? { color: '#fff', borderBottom: '3px solid #e02020' }
-                    : { color: muted, borderBottom: '3px solid transparent' }
-                  }
-                >
-                  {t}
-                </button>
-              ))}
-            </nav>
+          {/* Sign-in / role (phones: sits beside the logo) */}
+          <div className="order-2 ml-auto flex items-center gap-2 md:order-3">
             {authLoading ? (
               <span className="text-xs font-bold uppercase tracking-wide" style={{ color: muted }}>
                 Checking auth…
               </span>
             ) : canPlay ? (
-              <div className="flex items-center gap-2 self-start md:self-auto">
+              <div className="flex items-center gap-2 ">
                 <span className="text-xs font-black uppercase tracking-wide px-2 py-1 rounded-lg"
                   style={{ backgroundColor: '#15502a', color: '#4ade80' }}>
                   {auth.role === 'admin' ? 'Admin' : 'Player'}
@@ -156,6 +139,27 @@ export default function App() {
                 </button>
               </form>
             )}
+          </div>
+
+          {/* Nav tabs (phones: full-width second row) */}
+          <div className="order-3 w-full md:order-2 md:w-auto">
+            <nav aria-label="Main" className="flex items-stretch gap-0 overflow-x-auto scrollbar-none">
+              {(['games', 'players', 'stats'] as Tab[]).map(t => (
+                <button
+                  type="button"
+                  key={t}
+                  aria-current={tab === t ? 'page' : undefined}
+                  onClick={() => selectTab(t)}
+                  className="px-4 py-2 text-sm font-bold capitalize transition-all relative whitespace-nowrap"
+                  style={tab === t
+                    ? { color: '#fff', borderBottom: '3px solid #e02020' }
+                    : { color: muted, borderBottom: '3px solid transparent' }
+                  }
+                >
+                  {t}
+                </button>
+              ))}
+            </nav>
           </div>
         </div>
       </header>

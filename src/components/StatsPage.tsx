@@ -54,7 +54,7 @@ function valueOf(s: PlayerStats, key: SortKey): number | string | null {
 
 function SummaryCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded-2xl p-4 min-w-0" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+    <div className="rounded-2xl p-3 min-w-[13rem] flex-shrink-0 sm:min-w-0" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
       <p className="text-xs font-black uppercase tracking-widest mb-2" style={{ color: muted }}>{label}</p>
       <p className="text-xl font-black truncate">{value}</p>
       <p className="text-xs mt-1 truncate" style={{ color: muted }}>{detail}</p>
@@ -106,7 +106,8 @@ export default function StatsPage() {
 
   const withGames = ranked.filter(s => s.games_played > 0);
   const leader = ranked[0];
-  const mostWins = withGames.length ? [...withGames].sort((a, b) => b.wins - a.wins)[0] : undefined;
+  const topWinner = withGames.length ? [...withGames].sort((a, b) => b.wins - a.wins)[0] : undefined;
+  const mostWins = topWinner && topWinner.wins > 0 ? topWinner : undefined;
   const bestSingle = [...ranked].filter(s => s.best_round != null).sort((a, b) => (b.best_round ?? 0) - (a.best_round ?? 0))[0];
 
   return (
@@ -132,7 +133,7 @@ export default function StatsPage() {
       {stats !== null && stats.length > 0 && (
         <>
           {withGames.length > 0 && (
-            <div className="grid gap-3 grid-cols-1 sm:grid-cols-3 mb-6">
+            <div className="flex gap-3 overflow-x-auto pb-1 mb-6 sm:grid sm:grid-cols-3 sm:overflow-visible">
               {leader && (
                 <SummaryCard label="Top score" value={leader.name} detail={`${leader.total_score} points across ${leader.games_played} ${leader.games_played === 1 ? 'game' : 'games'}`} />
               )}
