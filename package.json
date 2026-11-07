@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "start": "node dist-server/index.js",
-    "test": "node --import tsx --test server/*.test.ts",
+    "test": "node --import tsx --test server/*.test.ts src/lib/*.test.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {

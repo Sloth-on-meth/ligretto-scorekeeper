@@ -170,11 +170,12 @@ function getGameById(gameId: string | number) {
   return db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as GameRow | undefined;
 }
 
-function getWinnersByGame(): Map<number, string[]> {
+function getWinnersByGame(includeTrashed: boolean): Map<number, string[]> {
   const rows = db.prepare(`
     SELECT gp.game_id AS game_id, p.name AS name, COALESCE(SUM(rs.score), 0) AS total
     FROM game_players gp
     JOIN games g ON g.id = gp.game_id AND g.finished_at IS NOT NULL
+      ${includeTrashed ? '' : 'AND g.deleted_at IS NULL'}
     JOIN players p ON p.id = gp.player_id
     JOIN rounds r ON r.game_id = gp.game_id
     LEFT JOIN round_scores rs ON rs.round_id = r.id AND rs.player_id = gp.player_id
@@ -207,11 +208,11 @@ function getGames(includeDeleted: boolean) {
     ORDER BY COALESCE(g.deleted_at, g.started_at) DESC, g.id DESC
   `).all() as (GameRow & { round_count: number; player_names: string | null })[];
 
-  const winners = getWinnersByGame();
+  const winners = getWinnersByGame(includeDeleted);
   return games.map(game => ({ ...game, winners: winners.get(game.id) ?? [] }));
 }
 
-function getRoundRows(roundId: number | bigint) {
+function getRoundRows(roundId: number | bigint | string) {
   return db.prepare(`
     SELECT r.*, rs.player_id, rs.cards_played, rs.cards_in_hand, rs.score
     FROM rounds r
@@ -571,6 +572,53 @@ app.post('/api/games/:id/rounds', requireAdmin, (req, res) => {
   res.status(201).json(getRoundRows(roundId));
 });
 
+function findEditableRound(gameId: string, roundId: string, res: express.Response) {
+  const game = getGameById(gameId);
+  if (!game) {
+    res.status(404).json({ error: 'Game not found' });
+    return null;
+  }
+  if (game.deleted_at) {
+    res.status(409).json({ error: 'Cannot edit a deleted game' });
+    return null;
+  }
+  if (game.finished_at) {
+    res.status(409).json({ error: 'Cannot change rounds in a finished game' });
+    return null;
+  }
+  const round = db.prepare('SELECT id FROM rounds WHERE id = ? AND game_id = ?').get(roundId, gameId);
+  if (!round) {
+    res.status(404).json({ error: 'Round not found' });
+    return null;
+  }
+  return game;
+}
+
+app.put('/api/games/:gameId/rounds/:roundId', requireAdmin, (req, res) => {
+  const gameId = getRouteParam(req.params.gameId);
+  const roundId = getRouteParam(req.params.roundId);
+  if (!findEditableRound(gameId, roundId, res)) return;
+
+  const gamePlayerIds = (db.prepare(
+    'SELECT player_id FROM game_players WHERE game_id = ?'
+  ).all(gameId) as { player_id: number }[]).map(row => row.player_id);
+
+  const parsed = parseRoundScores(req.body?.scores, gamePlayerIds);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+  db.transaction(() => {
+    db.prepare('DELETE FROM round_scores WHERE round_id = ?').run(roundId);
+    const insertScore = db.prepare(
+      'INSERT INTO round_scores (round_id, player_id, cards_played, cards_in_hand, score) VALUES (?, ?, ?, ?, ?)'
+    );
+    for (const s of parsed.value) {
+      insertScore.run(roundId, s.player_id, s.cards_played, s.cards_in_hand, s.score);
+    }
+  })();
+
+  res.json(getRoundRows(roundId));
+});
+
 app.delete('/api/games/:gameId/rounds/:roundId', requireAdmin, (req, res) => {
   const gameId = getRouteParam(req.params.gameId);
   const roundId = getRouteParam(req.params.roundId);
@@ -587,6 +635,17 @@ app.delete('/api/games/:gameId/rounds/:roundId', requireAdmin, (req, res) => {
 // --- Stats ---
 
 app.get('/api/stats', (_req, res) => {
+  // Outright wins vs shared wins (ties), counted over finished, non-trashed games.
+  const wins = new Map<string, { wins: number; ties: number }>();
+  for (const names of getWinnersByGame(false).values()) {
+    for (const name of names) {
+      const entry = wins.get(name) ?? { wins: 0, ties: 0 };
+      if (names.length === 1) entry.wins += 1;
+      else entry.ties += 1;
+      wins.set(name, entry);
+    }
+  }
+
   const stats = db.prepare(`
     WITH game_counts AS (
       SELECT gp.player_id, COUNT(*) AS games_played
@@ -627,7 +686,10 @@ app.get('/api/stats', (_req, res) => {
     LEFT JOIN round_stats rs ON rs.player_id = p.id
     ORDER BY total_score DESC, p.name
   `).all();
-  res.json(stats);
+  res.json(stats.map(row => {
+    const record = wins.get((row as { name: string }).name) ?? { wins: 0, ties: 0 };
+    return { ...(row as object), wins: record.wins, ties: record.ties };
+  }));
 });
 
 // --- Static frontend + fallbacks ---

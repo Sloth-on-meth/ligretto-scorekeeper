@@ -3,12 +3,14 @@ import PlayersPage from './components/PlayersPage';
 import GamesPage from './components/GamesPage';
 import StatsPage from './components/StatsPage';
 import { api } from './api';
+import { useFeedback } from './feedback';
 import type { AuthSession } from './types';
 import { surface, border, muted } from './theme';
 
 type Tab = 'games' | 'players' | 'stats';
 
 export default function App() {
+  const { toast } = useFeedback();
   const [tab, setTab] = useState<Tab>('games');
   // Bumping this remounts GamesPage, which resets it to the game list.
   const [gamesHomeSignal, setGamesHomeSignal] = useState(0);
@@ -32,6 +34,7 @@ export default function App() {
       const session = await api.auth.login(password);
       setAuth(session);
       setPassword('');
+      toast('Signed in', 'success');
     } catch (err) {
       setAuthError((err as Error).message);
     }
@@ -41,6 +44,7 @@ export default function App() {
     try {
       setAuth(await api.auth.logout());
       setAuthError('');
+      toast('Signed out');
     } catch (err) {
       setAuthError((err as Error).message);
     }
@@ -49,6 +53,12 @@ export default function App() {
   const goHome = () => {
     setTab('games');
     setGamesHomeSignal(prev => prev + 1);
+  };
+
+  // Tapping the active tab returns it to its start view (e.g. back out of a game).
+  const selectTab = (next: Tab) => {
+    if (next === tab && next === 'games') goHome();
+    else setTab(next);
   };
 
   return (
@@ -91,7 +101,7 @@ export default function App() {
                   type="button"
                   key={t}
                   aria-current={tab === t ? 'page' : undefined}
-                  onClick={() => setTab(t)}
+                  onClick={() => selectTab(t)}
                   className="px-4 py-2 text-sm font-bold capitalize transition-all relative whitespace-nowrap"
                   style={tab === t
                     ? { color: '#fff', borderBottom: '3px solid #e02020' }

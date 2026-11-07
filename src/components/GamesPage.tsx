@@ -1,77 +1,42 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
+import { useFeedback } from '../feedback';
 import type { Game, Player } from '../types';
 import GameView from './GameView';
 import { PLAYER_COLORS, surface, border, muted } from '../theme';
-
-interface ParsedImportGame {
-  playerNames: string[];
-  rounds: { scores: { player_name: string; score: number }[] }[];
-}
+import { parseImportedGame } from '../lib/importParser';
 
 interface Props {
   canEdit: boolean;
 }
+
+type StatusFilter = 'all' | 'active' | 'finished';
 
 function winnerLabel(winners: string[]) {
   if (winners.length === 1) return `${winners[0]} wins!`;
   return `Tie: ${winners.join(' & ')}`;
 }
 
-function parseImportedGame(text: string): ParsedImportGame {
-  const lines = text
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean);
-
-  if (lines.length < 2) {
-    throw new Error('Paste a header row and at least one round');
-  }
-
-  const playerNames = lines[0]
-    .split('\t')
-    .map(name => name.trim())
-    .filter(Boolean);
-
-  if (playerNames.length < 2) {
-    throw new Error('Header row must contain at least 2 player names');
-  }
-
-  const expectedColumns = playerNames.length;
-  const rounds = lines.slice(1).map((line, index) => {
-    const cells = line.split('\t').map(cell => cell.trim());
-    if (cells.length !== expectedColumns) {
-      throw new Error(`Round ${index + 1} has ${cells.length} columns; expected ${expectedColumns}`);
-    }
-
-    return {
-      scores: cells.map((cell, cellIndex) => {
-        if (!/^-?\d+$/.test(cell)) {
-          throw new Error(`Round ${index + 1}, ${playerNames[cellIndex]} must be a whole number`);
-        }
-
-        return {
-          player_name: playerNames[cellIndex],
-          score: Number(cell),
-        };
-      }),
-    };
-  });
-
-  return { playerNames, rounds };
+function playerNamesOf(game: Game) {
+  return (game.player_names ?? '').split(', ').filter(Boolean);
 }
 
 export default function GamesPage({ canEdit }: Props) {
+  const { toast, confirm } = useFeedback();
   const [games, setGames] = useState<Game[]>([]);
   const [trashedGames, setTrashedGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [selectedPlayers, setSelectedPlayers] = useState<number[]>([]);
   const [activeGameId, setActiveGameId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [listError, setListError] = useState('');
   const [importText, setImportText] = useState('');
-  const [importError, setImportError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [search, setSearch] = useState('');
   const [showTrash, setShowTrash] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   const load = useCallback(() => {
     Promise.all([api.games.list(), api.games.trash(), api.players.list()])
@@ -81,7 +46,8 @@ export default function GamesPage({ canEdit }: Props) {
         setPlayers(all);
         setListError('');
       })
-      .catch(err => setListError((err as Error).message));
+      .catch(err => setListError((err as Error).message))
+      .finally(() => setLoaded(true));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -89,14 +55,99 @@ export default function GamesPage({ canEdit }: Props) {
   // Ignore selections for players that no longer exist (e.g. after a delete elsewhere).
   const selected = selectedPlayers.filter(id => players.some(p => p.id === id));
 
-  const runAction = async (action: () => Promise<unknown>) => {
-    setListError('');
+  const togglePlayer = (id: number) => {
+    setSelectedPlayers(prev => (prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]));
+  };
+
+  const latestGame = games[0];
+  const lastLineupIds = latestGame
+    ? players.filter(p => playerNamesOf(latestGame).includes(p.name)).map(p => p.id)
+    : [];
+  const alreadySelected = lastLineupIds.length === selected.length && lastLineupIds.every(id => selected.includes(id));
+  const canRepeatLineup = lastLineupIds.length >= 2 && !alreadySelected;
+
+  const startGame = async () => {
+    setError('');
+    if (selected.length < 2) return setError('Select at least 2 players to start a game.');
+    setStarting(true);
     try {
-      await action();
-      load();
+      const game = await api.games.create(selected);
+      setSelectedPlayers([]);
+      setActiveGameId(game.id);
     } catch (err) {
-      setListError((err as Error).message);
-      load();
+      setError((err as Error).message);
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const trashGame = async (id: number) => {
+    const ok = await confirm({
+      title: `Move game #${id} to the trash?`,
+      message: 'You can restore it later. Trashed games are excluded from stats.',
+      confirmLabel: 'Move to trash',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.games.trashOne(id);
+      toast(`Game #${id} moved to trash`);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+    load();
+  };
+
+  const restoreGame = async (id: number) => {
+    try {
+      await api.games.restore(id);
+      toast(`Game #${id} restored`, 'success');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+    load();
+  };
+
+  const permanentlyDeleteGame = async (id: number) => {
+    const ok = await confirm({
+      title: `Permanently delete game #${id}?`,
+      message: 'This erases the game, all of its rounds and scores. This cannot be undone.',
+      confirmLabel: 'Delete forever',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.games.delete(id);
+      toast(`Game #${id} deleted`);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+    load();
+  };
+
+  // Live preview of what the pasted text will import.
+  const importPreview = useMemo(() => {
+    if (!importText.trim()) return null;
+    try {
+      return { ok: true as const, parsed: parseImportedGame(importText) };
+    } catch (err) {
+      return { ok: false as const, message: (err as Error).message };
+    }
+  }, [importText]);
+
+  const importGame = async () => {
+    if (!importPreview?.ok) return;
+    const { parsed } = importPreview;
+    setImporting(true);
+    try {
+      const game = await api.games.import(parsed.playerNames, parsed.rounds);
+      setImportText('');
+      toast(`Imported game #${game.id}`, 'success');
+      setActiveGameId(game.id);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -104,92 +155,77 @@ export default function GamesPage({ canEdit }: Props) {
     return <GameView gameId={activeGameId} canEdit={canEdit} onBack={() => { setActiveGameId(null); load(); }} />;
   }
 
-  const togglePlayer = (id: number) => {
-    setSelectedPlayers(prev =>
-      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
-    );
-  };
+  const activeCount = games.filter(g => !g.finished_at).length;
+  const finishedCount = games.length - activeCount;
 
-  const startGame = async () => {
-    setError('');
-    if (selected.length < 2) return setError('Select at least 2 players');
-    try {
-      const game = await api.games.create(selected);
-      setSelectedPlayers([]);
-      load();
-      setActiveGameId(game.id);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
+  const visibleGames = games.filter(g => {
+    if (statusFilter === 'active' && g.finished_at) return false;
+    if (statusFilter === 'finished' && !g.finished_at) return false;
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return `game ${g.id}`.includes(q) || (g.player_names ?? '').toLowerCase().includes(q);
+  });
 
-  const trashGame = (id: number) => {
-    const confirmed = window.confirm(
-      'Move this game to the trash?\n\nYou can still restore it later. Trashed games are excluded from stats.'
-    );
-    if (!confirmed) return;
-    return runAction(() => api.games.trashOne(id));
-  };
-
-  const restoreGame = (id: number) => runAction(() => api.games.restore(id));
-
-  const permanentlyDeleteGame = (id: number) => {
-    const confirmed = window.confirm(
-      'Permanently delete this game?\n\nThis erases the game, all of its rounds, and all of its scores. This cannot be undone.'
-    );
-    if (!confirmed) return;
-    return runAction(() => api.games.delete(id));
-  };
-
-  const importGame = async () => {
-    setImportError('');
-
-    try {
-      const parsed = parseImportedGame(importText);
-      const game = await api.games.import(parsed.playerNames, parsed.rounds);
-      setImportText('');
-      load();
-      setActiveGameId(game.id);
-    } catch (err) {
-      setImportError((err as Error).message);
-    }
-  };
+  const filterButton = (value: StatusFilter, label: string, count: number) => (
+    <button
+      type="button"
+      onClick={() => setStatusFilter(value)}
+      aria-pressed={statusFilter === value}
+      className="px-3 py-1.5 text-xs font-black uppercase tracking-wide transition-all whitespace-nowrap"
+      style={statusFilter === value ? { backgroundColor: '#e02020', color: '#fff' } : { color: muted }}
+    >
+      {label} <span className="opacity-70">{count}</span>
+    </button>
+  );
 
   return (
     <div>
       <div className="flex items-end justify-between gap-3 mb-5">
         <h2 className="text-2xl font-black uppercase tracking-wide">Games</h2>
-        <p className="text-xs font-medium text-right hidden sm:block" style={{ color: muted }}>
-          {games.length} active{canEdit ? ` • ${trashedGames.length} trashed` : ''}
+        <p className="text-xs font-medium text-right" style={{ color: muted }}>
+          {activeCount} in progress · {finishedCount} finished{canEdit ? ` · ${trashedGames.length} trashed` : ''}
         </p>
       </div>
 
       {listError && (
-        <div role="alert" className="rounded-xl px-4 py-3 mb-4 text-sm" style={{ backgroundColor: '#2a1010', color: '#fca5a5' }}>
-          {listError}
+        <div role="alert" className="rounded-xl px-4 py-3 mb-4 text-sm flex items-center justify-between gap-3"
+          style={{ backgroundColor: '#2a1010', color: '#fca5a5' }}>
+          <span>Could not load games: {listError}</span>
+          <button type="button" onClick={load} className="font-black uppercase text-xs underline underline-offset-4">Retry</button>
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] mb-6">
+      <div className="grid gap-4 lg:grid-cols-2 mb-8">
         {/* New game panel */}
         <div className="rounded-2xl p-4 sm:p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
-          <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: muted }}>New Game</p>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <p className="text-xs font-black uppercase tracking-widest" style={{ color: muted }}>New game</p>
+            {canEdit && canRepeatLineup && (
+              <button type="button" onClick={() => setSelectedPlayers(lastLineupIds)}
+                className="text-xs font-bold underline underline-offset-4 text-white">
+                Repeat last lineup
+              </button>
+            )}
+          </div>
 
           {!canEdit ? (
-            <p className="text-sm" style={{ color: muted }}>You&apos;re in read-only mode. Sign in to start a game.</p>
+            <p className="text-sm" style={{ color: muted }}>Read-only. Sign in to start a game.</p>
           ) : players.length < 2 ? (
-            <p className="text-sm" style={{ color: muted }}>Add at least 2 players first.</p>
+            <p className="text-sm" style={{ color: muted }}>Add at least 2 players on the Players tab first.</p>
           ) : (
             <>
-              <div className="flex flex-wrap gap-2 mb-5">
+              <p className="text-xs mb-3" style={{ color: muted }}>Tap players in seating order.</p>
+              <div className="flex flex-wrap gap-2 mb-5" role="group" aria-label="Players in this game">
                 {players.map((p, i) => {
                   const c = PLAYER_COLORS[i % PLAYER_COLORS.length];
-                  const sel = selected.includes(p.id);
+                  const seat = selected.indexOf(p.id);
+                  const sel = seat !== -1;
                   return (
                     <button
                       key={p.id}
                       type="button"
                       onClick={() => togglePlayer(p.id)}
+                      aria-pressed={sel}
                       className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all"
                       style={sel
                         ? { backgroundColor: c.bg, color: c.text, boxShadow: `0 0 0 2px ${c.bg}40` }
@@ -197,144 +233,204 @@ export default function GamesPage({ canEdit }: Props) {
                       }
                     >
                       <span className="rounded font-black text-xs flex items-center justify-center"
-                        style={{ width: 18, height: 22, backgroundColor: sel ? 'rgba(0,0,0,0.25)' : c.bg, color: '#fff', fontSize: '0.6rem' }}>
-                        {i + 1}
+                        style={{ width: 18, height: 22, backgroundColor: sel ? 'rgba(0,0,0,0.25)' : c.bg, color: '#fff', fontSize: '0.6rem' }}
+                        aria-hidden="true">
+                        {sel ? seat + 1 : i + 1}
                       </span>
                       {p.name}
-                      {sel && <span className="text-xs opacity-70">✓</span>}
                     </button>
                   );
                 })}
               </div>
               {error && <p className="text-sm mb-3" style={{ color: '#f87171' }} role="alert">{error}</p>}
-              <button
-                onClick={startGame}
-                disabled={selected.length < 2}
-                className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
-                style={{ backgroundColor: '#e02020', color: '#fff' }}
-              >
-                Start — {selected.length} Players
-              </button>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={startGame}
+                  disabled={selected.length < 2 || starting}
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
+                  style={{ backgroundColor: '#e02020', color: '#fff' }}
+                >
+                  {starting ? 'Starting…' : `Start — ${selected.length} ${selected.length === 1 ? 'player' : 'players'}`}
+                </button>
+                {selected.length > 0 && (
+                  <button type="button" onClick={() => setSelectedPlayers([])} className="text-xs font-bold" style={{ color: muted }}>
+                    Clear
+                  </button>
+                )}
+              </div>
             </>
           )}
         </div>
 
+        {/* Import panel */}
         {canEdit && (
           <div className="rounded-2xl p-4 sm:p-5" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
-            <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: muted }}>Import Finished Game</p>
+            <p className="text-xs font-black uppercase tracking-widest mb-2" style={{ color: muted }}>Import a finished game</p>
             <p className="text-sm mb-4" style={{ color: muted }}>
-              Paste tab-separated data with player names in the first row and round scores below. Missing players will be created automatically.
+              Paste names in the first row and one row of scores per round. Tabs, commas or semicolons all work. Unknown players are created for you.
             </p>
+            <label htmlFor="import-text" className="sr-only">Scores to import</label>
             <textarea
+              id="import-text"
               value={importText}
               onChange={e => setImportText(e.target.value)}
               placeholder={'sam\tamber\tsofie\n14\t25\t10\n11\t11\t16'}
-              className="w-full rounded-xl px-4 py-3 text-sm font-medium resize-y min-h-44 focus:outline-none mb-4"
+              spellCheck={false}
+              className="w-full rounded-xl px-4 py-3 text-sm font-mono resize-y min-h-40 focus:outline-none mb-3"
               style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
             />
-            {importError && <p className="text-sm mb-3" style={{ color: '#f87171' }} role="alert">{importError}</p>}
-            <button
-              onClick={importGame}
-              disabled={!importText.trim()}
-              className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
-              style={{ backgroundColor: '#e02020', color: '#fff' }}
-            >
-              Import Game
-            </button>
+            {importPreview && (
+              importPreview.ok ? (
+                <p className="text-xs mb-3 font-bold" style={{ color: '#4ade80' }} role="status">
+                  Ready: {importPreview.parsed.playerNames.length} players, {importPreview.parsed.rounds.length} rounds
+                  <span className="font-normal" style={{ color: muted }}> ({importPreview.parsed.delimiterLabel}-separated)</span>
+                </p>
+              ) : (
+                <p className="text-xs mb-3" style={{ color: '#f87171' }} role="alert">{importPreview.message}</p>
+              )
+            )}
+            <div className="flex items-center gap-4">
+              <button
+                onClick={importGame}
+                disabled={!importPreview?.ok || importing}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-30"
+                style={{ backgroundColor: '#e02020', color: '#fff' }}
+              >
+                {importing ? 'Importing…' : 'Import game'}
+              </button>
+              {importText && (
+                <button type="button" onClick={() => setImportText('')} className="text-xs font-bold" style={{ color: muted }}>
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
         )}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+        <div role="group" aria-label="Filter games by status" className="flex rounded-xl overflow-hidden self-start"
+          style={{ border: `1px solid ${border}` }}>
+          {filterButton('all', 'All', games.length)}
+          {filterButton('active', 'In progress', activeCount)}
+          {filterButton('finished', 'Finished', finishedCount)}
+        </div>
+        <label className="sm:w-64">
+          <span className="sr-only">Search games</span>
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by player or game #"
+            className="w-full rounded-xl px-3 py-2 text-sm focus:outline-none"
+            style={{ backgroundColor: surface, border: `1px solid ${border}`, color: '#fff' }}
+          />
+        </label>
       </div>
 
       {/* Games list */}
       <div className="space-y-3">
-        {games.map(g => (
-          <div key={g.id}
-            className="rounded-xl overflow-hidden"
-            style={{ border: `1px solid ${g.winners.length > 0 ? '#e02020' : border}` }}
-          >
-            {/* Winner banner for finished games */}
-            {g.winners.length > 0 && (
-              <div className="flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest"
-                style={{ backgroundColor: '#e02020', color: '#fff' }}>
-                <span aria-hidden="true">🏆</span>
-                <span>{winnerLabel(g.winners)}</span>
-              </div>
-            )}
+        {visibleGames.map(g => {
+          const winners = g.winners ?? [];
+          return (
+            <div key={g.id}
+              className="rounded-xl overflow-hidden"
+              style={{ border: `1px solid ${winners.length > 0 ? '#e02020' : border}` }}
+            >
+              {winners.length > 0 && (
+                <div className="flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest"
+                  style={{ backgroundColor: '#e02020', color: '#fff' }}>
+                  <span aria-hidden="true">🏆</span>
+                  <span>{winnerLabel(winners)}</span>
+                </div>
+              )}
 
-            <div className="px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-              style={{ backgroundColor: surface }}>
-              <div>
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="font-bold text-sm">Game #{g.id}</span>
-                  {!g.finished_at && (
-                    <span className="text-xs px-2 py-0.5 rounded-full font-bold"
-                      style={{ backgroundColor: '#2a1010', color: '#fca5a5' }}>
-                      Active
-                    </span>
+              <div className="px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                style={{ backgroundColor: surface }}>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-bold text-sm">Game #{g.id}</span>
+                    {!g.finished_at && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-bold"
+                        style={{ backgroundColor: '#2a1010', color: '#fca5a5' }}>
+                        In progress
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs truncate" style={{ color: muted }}>
+                    {new Date(g.started_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {' · '}{g.round_count} {g.round_count === 1 ? 'round' : 'rounds'}
+                    {' · '}{g.player_names}
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 sm:flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setActiveGameId(g.id)}
+                    aria-label={`Open game ${g.id}`}
+                    className="w-full sm:w-auto text-sm font-black uppercase tracking-wide px-4 py-2 rounded-lg"
+                    style={g.finished_at
+                      ? { backgroundColor: '#111118', color: '#fff', border: `1px solid ${border}` }
+                      : { backgroundColor: '#e02020', color: '#fff' }}
+                  >
+                    {g.finished_at ? 'View' : 'Continue'}
+                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => trashGame(g.id)}
+                      aria-label={`Move game ${g.id} to trash`}
+                      className="text-xs font-medium transition-colors whitespace-nowrap"
+                      style={{ color: muted }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                      onMouseLeave={e => (e.currentTarget.style.color = muted)}
+                    >
+                      Trash
+                    </button>
                   )}
                 </div>
-                <p className="text-xs" style={{ color: muted }}>
-                  {new Date(g.started_at).toLocaleString()} · {g.round_count} rounds · {g.player_names}
-                </p>
-              </div>
-              <div className="flex items-center gap-3 sm:flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setActiveGameId(g.id)}
-                  aria-label={`Open game ${g.id}`}
-                  className="w-full sm:w-auto text-sm font-black uppercase tracking-wide px-4 py-2 rounded-lg"
-                  style={{ backgroundColor: '#e02020', color: '#fff' }}
-                >
-                  Open
-                </button>
-                {canEdit && (
-                  <button
-                    onClick={() => trashGame(g.id)}
-                    aria-label={`Move game ${g.id} to trash`}
-                    className="text-xs font-medium transition-colors whitespace-nowrap"
-                    style={{ color: muted }}
-                    onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                    onMouseLeave={e => (e.currentTarget.style.color = muted)}
-                  >
-                    Trash
-                  </button>
-                )}
               </div>
             </div>
-          </div>
-        ))}
-        {games.length === 0 && (
+          );
+        })}
+
+        {loaded && games.length === 0 && (
           <div className="text-center py-16" style={{ color: muted }}>
-            <div className="flex justify-center gap-1 mb-4">
-              {['#c81818','#1844c8','#18a030','#c89800'].map((c, i) => (
+            <div className="flex justify-center gap-1 mb-4" aria-hidden="true">
+              {['#c81818', '#1844c8', '#18a030', '#c89800'].map((c, i) => (
                 <div key={i} className="rounded-xl font-black text-2xl flex items-center justify-center"
-                  style={{ width: 52, height: 70, backgroundColor: c, color: '#fff', opacity: 0.4, transform: `rotate(${(i-1.5)*8}deg)` }}>
+                  style={{ width: 52, height: 70, backgroundColor: c, color: '#fff', opacity: 0.4, transform: `rotate(${(i - 1.5) * 8}deg)` }}>
                   {i + 1}
                 </div>
               ))}
             </div>
-            <p className="text-sm mt-6">No games yet.</p>
+            <p className="text-sm mt-6">No games yet. {canEdit ? 'Start one above.' : 'Sign in to start one.'}</p>
           </div>
+        )}
+        {games.length > 0 && visibleGames.length === 0 && (
+          <p className="text-sm text-center py-10" style={{ color: muted }}>
+            No games match{search ? ` “${search}”` : ''}{statusFilter !== 'all' ? ` in this filter` : ''}.
+          </p>
         )}
       </div>
 
       {canEdit && (
-        <div className="rounded-2xl p-4 sm:p-5 mt-8" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
+        <div className="rounded-2xl p-4 sm:p-5 mt-10" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
               <p className="text-xs font-black uppercase tracking-widest mb-1" style={{ color: muted }}>Trash</p>
               <p className="text-sm" style={{ color: muted }}>
-                Deleted games stay here until you permanently remove them. Trashed games are excluded from stats.
+                Trashed games are hidden and excluded from stats until restored.
               </p>
             </div>
             <button
               type="button"
               onClick={() => setShowTrash(prev => !prev)}
               aria-expanded={showTrash}
-              className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wide"
+              className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wide whitespace-nowrap"
               style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
             >
-              {showTrash ? 'Hide Trash' : `Open Trash (${trashedGames.length})`}
+              {showTrash ? 'Hide' : `Show (${trashedGames.length})`}
             </button>
           </div>
 
@@ -343,16 +439,16 @@ export default function GamesPage({ canEdit }: Props) {
               <div className="space-y-2">
                 {trashedGames.map(g => (
                   <div key={g.id}
-                    className="rounded-xl px-4 py-3 flex items-center justify-between gap-4"
+                    className="rounded-xl px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                     style={{ backgroundColor: '#111118', border: `1px solid ${border}` }}
                   >
-                    <div>
+                    <div className="min-w-0">
                       <div className="font-bold text-sm">Game #{g.id}</div>
-                      <p className="text-xs" style={{ color: muted }}>
+                      <p className="text-xs truncate" style={{ color: muted }}>
                         {g.player_names} · {g.round_count} rounds · deleted {g.deleted_at ? new Date(g.deleted_at).toLocaleString() : 'recently'}
                       </p>
                     </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
+                    <div className="flex items-center gap-4 flex-shrink-0">
                       <button
                         onClick={() => restoreGame(g.id)}
                         aria-label={`Restore game ${g.id}`}
@@ -369,7 +465,7 @@ export default function GamesPage({ canEdit }: Props) {
                         onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
                         onMouseLeave={e => (e.currentTarget.style.color = '#fca5a5')}
                       >
-                        Delete Permanently
+                        Delete forever
                       </button>
                     </div>
                   </div>

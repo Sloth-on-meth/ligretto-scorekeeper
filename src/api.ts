@@ -43,6 +43,8 @@ export const api = {
   rounds: {
     add: (gameId: number, scores: { player_id: number; score?: number; cards_played?: number; cards_in_hand?: number }[]) =>
       req(`/games/${gameId}/rounds`, { method: 'POST', body: JSON.stringify({ scores }) }),
+    update: (gameId: number, roundId: number, scores: { player_id: number; score?: number; cards_played?: number; cards_in_hand?: number }[]) =>
+      req(`/games/${gameId}/rounds/${roundId}`, { method: 'PUT', body: JSON.stringify({ scores }) }),
     delete: (gameId: number, roundId: number) =>
       req<void>(`/games/${gameId}/rounds/${roundId}`, { method: 'DELETE' }),
   },

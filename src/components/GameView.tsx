@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import { useFeedback } from '../feedback';
 import type { GameDetail, RoundScore } from '../types';
 import { PLAYER_COLORS, surface, border, muted } from '../theme';
 
@@ -10,6 +11,26 @@ interface Props {
 }
 
 type InputMode = 'formula' | 'direct';
+
+const MODE_KEY = 'ligretto-entry-mode';
+const MAX_PLAYED = 40;
+const MAX_IN_HAND = 10;
+
+function readStoredMode(): InputMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'direct' ? 'direct' : 'formula';
+  } catch {
+    return 'formula';
+  }
+}
+
+function storeMode(mode: InputMode) {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    // Storage can be unavailable (private mode); the preference is a convenience only.
+  }
+}
 
 function csvCell(value: string | number) {
   const text = String(value);
@@ -45,19 +66,41 @@ function exportCSV(detail: GameDetail) {
   URL.revokeObjectURL(url);
 }
 
+const scoreColor = (s: number) => (s >= 0 ? '#4ade80' : '#f87171');
+const fmtScore = (s: number) => `${s > 0 ? '+' : ''}${s}`;
+
+const inputStyle: React.CSSProperties = {
+  backgroundColor: '#111118',
+  border: `1px solid ${border}`,
+  borderRadius: 10,
+  color: '#fff',
+  width: '100%',
+  padding: '12px 14px',
+  fontSize: '1.1rem',
+  fontWeight: 700,
+  minHeight: 48,
+  textAlign: 'center',
+};
+
+type FormulaEntry = { cards_played: string; cards_in_hand: string };
+
 export default function GameView({ gameId, onBack, canEdit }: Props) {
+  const { toast, confirm } = useFeedback();
   const [detail, setDetail] = useState<GameDetail | null>(null);
-  const [mode, setMode] = useState<InputMode>('formula');
-  const [formulaInputs, setFormulaInputs] = useState<Record<number, { cards_played: string; cards_in_hand: string }>>({});
-  const [directInputs, setDirectInputs] = useState<Record<number, string>>({});
-  const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [mode, setMode] = useState<InputMode>(readStoredMode);
+  const [formulaInputs, setFormulaInputs] = useState<Record<number, FormulaEntry>>({});
+  const [directInputs, setDirectInputs] = useState<Record<number, string>>({});
+  const [editingRound, setEditingRound] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const formRef = useRef<HTMLFormElement>(null);
 
   const load = useCallback(() => api.games.get(gameId)
     .then(d => {
       setDetail(d);
       setLoadError('');
-      const fi: Record<number, { cards_played: string; cards_in_hand: string }> = {};
+      const fi: Record<number, FormulaEntry> = {};
       const di: Record<number, string> = {};
       d.players.forEach(p => {
         fi[p.id] = { cards_played: '', cards_in_hand: '' };
@@ -65,18 +108,31 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
       });
       setFormulaInputs(fi);
       setDirectInputs(di);
+      setEditingRound(null);
     })
     .catch(err => setLoadError((err as Error).message)), [gameId]);
 
   useEffect(() => { load(); }, [load]);
 
+  const changeMode = (next: InputMode) => {
+    setMode(next);
+    storeMode(next);
+  };
+
   if (!detail) {
-    return loadError
-      ? <p className="text-sm" style={{ color: '#f87171' }} role="alert">Could not load game: {loadError}</p>
-      : <p style={{ color: muted }}>Loading…</p>;
+    return loadError ? (
+      <div>
+        <button onClick={onBack} className="text-sm font-bold mb-5" style={{ color: muted }}>← All games</button>
+        <p className="text-sm" style={{ color: '#f87171' }} role="alert">Could not load this game: {loadError}</p>
+      </div>
+    ) : (
+      <p style={{ color: muted }}>Loading…</p>
+    );
   }
 
   const { game, players, rounds } = detail;
+  const isFinished = Boolean(game.finished_at);
+  const canChange = canEdit && !isFinished;
 
   const roundNumbers = [...new Set(rounds.map(r => r.round_number))].sort((a, b) => a - b);
   const scoreMap: Record<number, Record<number, RoundScore>> = {};
@@ -95,76 +151,142 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
   const sortedPlayers = [...players].sort((a, b) => (totals[b.id] ?? 0) - (totals[a.id] ?? 0));
   const topTotal = players.length > 0 ? Math.max(...players.map(p => totals[p.id] ?? 0)) : 0;
   // Everyone on the top total wins, so ties share the trophy.
-  const isWinner = (playerId: number) =>
-    Boolean(game.finished_at) && rounds.length > 0 && (totals[playerId] ?? 0) === topTotal;
-  // Next round number matches what the server assigns (max + 1), even after deletions.
-  const nextRoundNumber = roundNumbers.length > 0 ? roundNumbers[roundNumbers.length - 1] + 1 : 1;
+  const winners = isFinished && rounds.length > 0
+    ? sortedPlayers.filter(p => (totals[p.id] ?? 0) === topTotal)
+    : [];
+  const isWinner = (playerId: number) => winners.some(w => w.id === playerId);
   const playerColorIndex: Record<number, number> = {};
   players.forEach((p, i) => { playerColorIndex[p.id] = i % PLAYER_COLORS.length; });
+  // Next round number matches what the server assigns (max + 1), even after deletions.
+  const nextRoundNumber = roundNumbers.length > 0 ? roundNumbers[roundNumbers.length - 1] + 1 : 1;
+  const leaderNames = sortedPlayers.length > 1 && !isFinished && rounds.length > 0
+    && (totals[sortedPlayers[0].id] ?? 0) > (totals[sortedPlayers[1].id] ?? 0)
+    ? sortedPlayers[0].name
+    : null;
+
+  const startEditing = (roundNumber: number) => {
+    const roundRows = scoreMap[roundNumber] ?? {};
+    const values = Object.values(roundRows);
+    const hasCards = values.every(v => v.cards_played !== null && v.cards_in_hand !== null);
+    const fi: Record<number, FormulaEntry> = {};
+    const di: Record<number, string> = {};
+    players.forEach(p => {
+      const row = roundRows[p.id];
+      fi[p.id] = {
+        cards_played: row?.cards_played != null ? String(row.cards_played) : '',
+        cards_in_hand: row?.cards_in_hand != null ? String(row.cards_in_hand) : '',
+      };
+      di[p.id] = row ? String(row.score) : '';
+    });
+    setFormulaInputs(fi);
+    setDirectInputs(di);
+    setEditingRound(roundNumber);
+    setMode(hasCards ? 'formula' : 'direct');
+    setError('');
+    requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  };
+
+  const cancelEditing = () => {
+    setEditingRound(null);
+    setMode(readStoredMode());
+    load();
+  };
+
+  const focusFirstField = () => {
+    formRef.current?.querySelector<HTMLInputElement>('input')?.focus();
+  };
+
+  // Enter moves to the next field; on the last field it submits the round.
+  const onEntryKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
+    if (e.key !== 'Enter' || !(e.target instanceof HTMLInputElement)) return;
+    const fields = Array.from(e.currentTarget.querySelectorAll<HTMLInputElement>('input[data-entry]'));
+    const index = fields.indexOf(e.target);
+    if (index >= 0 && index < fields.length - 1) {
+      e.preventDefault();
+      fields[index + 1].focus();
+      fields[index + 1].select();
+    }
+  };
 
   const submitRound = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     setError('');
     let scores: { player_id: number; score?: number; cards_played?: number; cards_in_hand?: number }[];
 
     if (mode === 'direct') {
-      scores = players.map(p => ({ player_id: p.id, score: parseInt(directInputs[p.id] ?? '') }));
-      if (scores.some(s => isNaN(s.score!))) return setError('Fill in all scores');
+      scores = players.map(p => ({ player_id: p.id, score: parseInt(directInputs[p.id] ?? '', 10) }));
+      if (scores.some(s => isNaN(s.score!))) return setError('Fill in every player’s score');
     } else {
       scores = players.map(p => ({
         player_id: p.id,
-        cards_played: parseInt(formulaInputs[p.id]?.cards_played ?? ''),
-        cards_in_hand: parseInt(formulaInputs[p.id]?.cards_in_hand ?? ''),
+        cards_played: parseInt(formulaInputs[p.id]?.cards_played ?? '', 10),
+        cards_in_hand: parseInt(formulaInputs[p.id]?.cards_in_hand ?? '', 10),
       }));
       if (scores.some(s => isNaN(s.cards_played!) || isNaN(s.cards_in_hand!))) {
-        return setError('Fill in all scores');
+        return setError('Fill in every player’s cards');
+      }
+      const outOfRange = scores.some(s =>
+        s.cards_played! < 0 || s.cards_played! > MAX_PLAYED || s.cards_in_hand! < 0 || s.cards_in_hand! > MAX_IN_HAND);
+      if (outOfRange) {
+        return setError(`Cards played must be 0–${MAX_PLAYED} and cards in hand 0–${MAX_IN_HAND}`);
       }
     }
+
+    setSaving(true);
     try {
-      await api.rounds.add(gameId, scores);
-      load();
+      if (editingRound !== null) {
+        await api.rounds.update(gameId, roundIdMap[editingRound], scores);
+        toast(`Round ${editingRound} updated`, 'success');
+      } else {
+        await api.rounds.add(gameId, scores);
+        toast(`Round ${nextRoundNumber} saved`, 'success');
+      }
+      await load();
+      requestAnimationFrame(focusFirstField);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const deleteRound = async (roundNumber: number, roundId: number) => {
-    if (!window.confirm(`Delete round ${roundNumber}? Its scores will be removed from the game and stats.`)) return;
-    setError('');
+  const deleteRound = async (roundNumber: number) => {
+    const ok = await confirm({
+      title: `Delete round ${roundNumber}?`,
+      message: 'Its scores are removed from this game and from the stats.',
+      confirmLabel: 'Delete round',
+      danger: true,
+    });
+    if (!ok) return;
     try {
-      await api.rounds.delete(gameId, roundId);
+      await api.rounds.delete(gameId, roundIdMap[roundNumber]);
+      toast(`Round ${roundNumber} deleted`);
       load();
     } catch (err) {
-      setError((err as Error).message);
+      toast((err as Error).message, 'error');
     }
   };
 
   const finishGame = async () => {
-    if (!window.confirm('Finish this game? Finished games are locked and rounds can no longer be added or removed.')) return;
-    setError('');
+    const ok = await confirm({
+      title: 'Finish this game?',
+      message: 'A finished game is locked: rounds can no longer be added, edited or removed.',
+      confirmLabel: 'Finish game',
+    });
+    if (!ok) return;
     try {
       await api.games.finish(gameId);
+      toast('Game finished', 'success');
       load();
     } catch (err) {
-      setError((err as Error).message);
+      toast((err as Error).message, 'error');
     }
   };
 
-  const scoreColor = (s: number) => s >= 0 ? '#4ade80' : '#f87171';
-  const fmtScore = (s: number) => `${s > 0 ? '+' : ''}${s}`;
-
-  const inputStyle: React.CSSProperties = {
-    backgroundColor: '#111118',
-    border: `1px solid ${border}`,
-    borderRadius: 10,
-    color: '#fff',
-    width: '100%',
-    padding: '12px 14px',
-    fontSize: '1.1rem',
-    fontWeight: 700,
-    minHeight: 48,
-    textAlign: 'center',
-  };
+  const fi = (playerId: number) => formulaInputs[playerId];
+  const setFormula = (playerId: number, field: keyof FormulaEntry, value: string) =>
+    setFormulaInputs(prev => ({ ...prev, [playerId]: { ...prev[playerId], [field]: value } }));
 
   return (
     <div>
@@ -179,14 +301,14 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
       </button>
 
       {/* Header */}
-      <div className="flex items-start justify-between mb-6 gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6">
+        <div className="min-w-0">
           <h2 className="text-2xl font-black uppercase tracking-wide">Game #{game.id}</h2>
           <p className="text-xs mt-0.5" style={{ color: muted }}>
-            {new Date(game.started_at).toLocaleString()} · {roundNumbers.length} rounds
+            {new Date(game.started_at).toLocaleString()} · {roundNumbers.length} {roundNumbers.length === 1 ? 'round' : 'rounds'}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
           {roundNumbers.length > 0 && (
             <button
               onClick={() => exportCSV(detail)}
@@ -199,13 +321,13 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
               CSV ↓
             </button>
           )}
-          {canEdit && !game.finished_at ? (
+          {canChange ? (
             <button onClick={finishGame}
               className="px-4 py-2 rounded-xl text-sm font-black uppercase tracking-wide"
               style={{ backgroundColor: '#15502a', color: '#4ade80', border: '1px solid #1a6634' }}>
               Finish ✓
             </button>
-          ) : game.finished_at ? (
+          ) : isFinished ? (
             <span className="px-3 py-1.5 rounded-xl text-xs font-black uppercase"
               style={{ backgroundColor: '#15502a', color: '#4ade80' }}>
               Finished
@@ -219,107 +341,160 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
         </div>
       </div>
 
-      {/* Scoreboard — rounds as rows, players as columns */}
-      {roundNumbers.length > 0 && (
-        <div className="rounded-2xl overflow-hidden mb-8" style={{ border: `1px solid ${border}` }}>
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ backgroundColor: '#1a1a24' }}>
-                <th className="text-left py-3 px-4 text-xs font-black uppercase tracking-widest" style={{ color: muted, width: 64 }}>
-                  Round
-                </th>
-                {sortedPlayers.map((p, rank) => {
-                  const c = PLAYER_COLORS[playerColorIndex[p.id]];
-                  return (
-                    <th key={p.id} className="text-center py-3 px-3">
-                      <div className="flex flex-col items-center gap-1">
-                        <div className="rounded-md font-black text-xs flex items-center justify-center"
-                          style={{ width: 26, height: 34, backgroundColor: c.bg, color: c.text, boxShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>
-                          {isWinner(p.id) ? '🏆' : rank + 1}
-                        </div>
-                        <span className="font-bold text-xs">{p.name}</span>
-                      </div>
-                    </th>
-                  );
-                })}
-                {canEdit && !game.finished_at && <th style={{ width: 32 }} />}
-              </tr>
-            </thead>
-            <tbody>
-              {roundNumbers.map(r => (
-                <tr key={r} style={{ borderTop: `1px solid ${border}` }}>
-                  <td className="py-2.5 px-4 font-black text-xs uppercase tracking-wide" style={{ color: muted }}>
-                    R{r}
-                  </td>
-                  {sortedPlayers.map(p => {
-                    const s = scoreMap[r]?.[p.id];
-                    return (
-                      <td key={p.id} className="py-2.5 px-3 text-center font-mono font-bold text-sm">
-                        {s ? (
-                          <span style={{ color: scoreColor(s.score) }}
-                            title={s.cards_played != null ? `Played: ${s.cards_played}, In hand: ${s.cards_in_hand}` : undefined}>
-                            {fmtScore(s.score)}
-                          </span>
-                        ) : <span style={{ color: border }}>—</span>}
-                      </td>
-                    );
-                  })}
-                  {canEdit && !game.finished_at && (
-                    <td className="py-2.5 pr-3 text-center">
-                      <button onClick={() => deleteRound(r, roundIdMap[r])}
-                        className="text-xs transition-colors"
-                        style={{ color: border }}
-                        aria-label={`Delete round ${r}`}
-                        title="Delete round"
-                        onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                        onMouseLeave={e => (e.currentTarget.style.color = border)}>
-                        ✕
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-              {/* Totals row */}
-              <tr style={{ borderTop: `2px solid ${border}`, backgroundColor: '#1a1a24' }}>
-                <td className="py-3 px-4 font-black text-xs uppercase tracking-wide" style={{ color: muted }}>
-                  Total
-                </td>
-                {sortedPlayers.map(p => {
-                  const c = PLAYER_COLORS[playerColorIndex[p.id]];
-                  return (
-                    <td key={p.id} className="py-3 px-3 text-center font-black text-base"
-                      style={{ color: c.bg === '#c89800' ? '#d4a500' : c.bg }}>
-                      {totals[p.id] ?? 0}
-                    </td>
-                  );
-                })}
-                {canEdit && !game.finished_at && <td />}
-              </tr>
-            </tbody>
-          </table>
+      {/* Result banner */}
+      {winners.length > 0 && (
+        <div className="rounded-2xl px-4 py-3 mb-6 flex items-center gap-3 font-black uppercase tracking-wide"
+          style={{ backgroundColor: '#e02020', color: '#fff' }} role="status">
+          <span aria-hidden="true" className="text-xl">🏆</span>
+          <span>{winners.length === 1 ? `${winners[0].name} wins` : `Tie: ${winners.map(w => w.name).join(' & ')}`}</span>
+          <span className="ml-auto font-mono text-base">{topTotal}</span>
         </div>
       )}
 
-      {/* Round entry form — mobile-first card-per-player layout */}
-      {!canEdit && !game.finished_at && (
-        <div className="rounded-2xl p-4" style={{ backgroundColor: surface, border: `1px solid ${border}`, color: muted }}>
-          Sign in to add rounds, delete rounds, or finish this game.
+      {/* Scoreboard — rounds as rows, players as columns. Scrolls sideways on small screens. */}
+      {roundNumbers.length > 0 && (
+        <div className="rounded-2xl overflow-hidden mb-8" style={{ border: `1px solid ${border}` }}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ minWidth: 120 + sortedPlayers.length * 84 }}>
+              <thead>
+                <tr style={{ backgroundColor: surface }}>
+                  <th className="sticky left-0 z-[1] text-left py-3 px-4 text-xs font-black uppercase tracking-widest"
+                    style={{ color: muted, backgroundColor: surface, width: 64 }}>
+                    Round
+                  </th>
+                  {sortedPlayers.map((p, rank) => {
+                    const c = PLAYER_COLORS[playerColorIndex[p.id]];
+                    return (
+                      <th key={p.id} className="text-center py-3 px-2">
+                        <div className="flex flex-col items-center gap-1">
+                          <div className="rounded-md font-black text-xs flex items-center justify-center"
+                            style={{ width: 26, height: 34, backgroundColor: c.bg, color: c.text, boxShadow: '0 1px 4px rgba(0,0,0,0.4)' }}
+                            aria-hidden="true">
+                            {isWinner(p.id) ? '🏆' : rank + 1}
+                          </div>
+                          <span className="font-bold text-xs max-w-[80px] truncate">{p.name}</span>
+                        </div>
+                      </th>
+                    );
+                  })}
+                  {canChange && <th style={{ width: 32 }} />}
+                </tr>
+              </thead>
+              <tbody>
+                {roundNumbers.map(r => {
+                  const isEditingThis = editingRound === r;
+                  return (
+                    <tr key={r} style={{
+                      borderTop: `1px solid ${border}`,
+                      backgroundColor: isEditingThis ? '#2a1010' : undefined,
+                    }}>
+                      <td className="sticky left-0 z-[1] py-2.5 px-4" style={{ backgroundColor: isEditingThis ? '#2a1010' : '#111118' }}>
+                        {canChange ? (
+                          <button
+                            onClick={() => startEditing(r)}
+                            aria-label={`Edit round ${r}`}
+                            title="Edit round"
+                            className="font-black text-xs uppercase tracking-wide underline decoration-dotted underline-offset-4 hover:text-white"
+                            style={{ color: muted }}
+                          >
+                            R{r}
+                          </button>
+                        ) : (
+                          <span className="font-black text-xs uppercase tracking-wide" style={{ color: muted }}>R{r}</span>
+                        )}
+                      </td>
+                      {sortedPlayers.map(p => {
+                        const s = scoreMap[r]?.[p.id];
+                        return (
+                          <td key={p.id} className="py-2.5 px-2 text-center font-mono font-bold text-sm">
+                            {s ? (
+                              <span style={{ color: scoreColor(s.score) }}
+                                title={s.cards_played != null ? `Played: ${s.cards_played}, In hand: ${s.cards_in_hand}` : undefined}>
+                                {fmtScore(s.score)}
+                              </span>
+                            ) : <span style={{ color: border }}>—</span>}
+                          </td>
+                        );
+                      })}
+                      {canChange && (
+                        <td className="py-2.5 pr-3 text-center">
+                          <button onClick={() => deleteRound(r)}
+                            className="text-xs transition-colors px-1"
+                            style={{ color: muted }}
+                            aria-label={`Delete round ${r}`}
+                            title="Delete round"
+                            onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                            onMouseLeave={e => (e.currentTarget.style.color = muted)}>
+                            ✕
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+                {/* Totals row */}
+                <tr style={{ borderTop: `2px solid ${border}`, backgroundColor: surface }}>
+                  <td className="sticky left-0 z-[1] py-3 px-4 font-black text-xs uppercase tracking-wide"
+                    style={{ color: muted, backgroundColor: surface }}>
+                    Total
+                  </td>
+                  {sortedPlayers.map(p => {
+                    const c = PLAYER_COLORS[playerColorIndex[p.id]];
+                    return (
+                      <td key={p.id} className="py-3 px-2 text-center font-black text-base"
+                        style={{ color: c.bg === '#c89800' ? '#d4a500' : c.bg }}>
+                        {totals[p.id] ?? 0}
+                      </td>
+                    );
+                  })}
+                  {canChange && <td />}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {leaderNames && (
+            <p className="text-xs px-4 py-2" style={{ color: muted, borderTop: `1px solid ${border}` }}>
+              {leaderNames} leads by {(totals[sortedPlayers[0].id] ?? 0) - (totals[sortedPlayers[1].id] ?? 0)}
+            </p>
+          )}
         </div>
       )}
-      {canEdit && !game.finished_at && (
-        <div className="rounded-2xl p-4" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-xs font-black uppercase tracking-widest" style={{ color: muted }}>
-              Round {nextRoundNumber}
-            </p>
-            <div className="flex rounded-xl overflow-hidden text-xs font-black uppercase tracking-wide"
+
+      {/* Round entry */}
+      {!canEdit && !isFinished && (
+        <div className="rounded-2xl p-4" style={{ backgroundColor: surface, border: `1px solid ${border}`, color: muted }}>
+          Sign in to add rounds, edit rounds, or finish this game.
+        </div>
+      )}
+      {canChange && (
+        <div className="rounded-2xl p-4" style={{
+          backgroundColor: surface,
+          border: `1px solid ${editingRound !== null ? '#e02020' : border}`,
+        }}>
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            {editingRound !== null ? (
+              <div className="flex items-center gap-3">
+                <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#f87171' }}>
+                  Editing round {editingRound}
+                </p>
+                <button type="button" onClick={cancelEditing}
+                  className="text-xs font-bold underline underline-offset-4" style={{ color: muted }}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs font-black uppercase tracking-widest" style={{ color: muted }}>
+                Round {nextRoundNumber}
+              </p>
+            )}
+            <div role="group" aria-label="Score entry mode" className="flex rounded-xl overflow-hidden text-xs font-black uppercase tracking-wide"
               style={{ border: `1px solid ${border}` }}>
-              <button type="button" onClick={() => setMode('formula')}
+              <button type="button" onClick={() => changeMode('formula')} aria-pressed={mode === 'formula'}
                 className="px-3 py-1.5 transition-all"
                 style={mode === 'formula' ? { backgroundColor: '#e02020', color: '#fff' } : { color: muted }}>
                 Formula
               </button>
-              <button type="button" onClick={() => setMode('direct')}
+              <button type="button" onClick={() => changeMode('direct')} aria-pressed={mode === 'direct'}
                 className="px-3 py-1.5 transition-all"
                 style={mode === 'direct' ? { backgroundColor: '#e02020', color: '#fff' } : { color: muted }}>
                 Direct
@@ -327,15 +502,18 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
             </div>
           </div>
 
-          <form onSubmit={submitRound}>
-            {/* Grid: [chip+name] [played] [in hand] [score]  — or  [chip+name] [score] in direct mode */}
+          <form ref={formRef} onSubmit={submitRound} onKeyDown={onEntryKeyDown}>
+            <div className="mb-2 text-xs" style={{ color: muted }}>
+              {mode === 'formula'
+                ? 'Score = cards played − 2 × cards in hand. Press Enter to move to the next field.'
+                : 'Enter each player’s score. Press Enter to move to the next field.'}
+            </div>
             <div className="mb-4" style={{
               display: 'grid',
-              gridTemplateColumns: mode === 'formula' ? '1fr 1fr 1fr 48px' : '1fr 1fr',
+              gridTemplateColumns: mode === 'formula' ? 'minmax(0,1fr) 1fr 1fr 48px' : 'minmax(0,1fr) 1fr',
               gap: '8px',
               alignItems: 'center',
             }}>
-              {/* Column headers */}
               <div className="text-xs font-black uppercase tracking-wide" style={{ color: muted }}>Player</div>
               {mode === 'formula' ? (
                 <>
@@ -347,47 +525,47 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                 <div className="text-xs font-black uppercase tracking-wide text-center" style={{ color: muted }}>Score</div>
               )}
 
-              {/* Player rows */}
-              {players.map(p => {
+              {players.map((p, index) => {
                 const c = PLAYER_COLORS[playerColorIndex[p.id]];
-                const fi = formulaInputs[p.id];
-                const previewScore = fi?.cards_played !== '' && fi?.cards_in_hand !== ''
-                  ? parseInt(fi.cards_played) - parseInt(fi.cards_in_hand) * 2
+                const played = fi(p.id)?.cards_played ?? '';
+                const inHand = fi(p.id)?.cards_in_hand ?? '';
+                const previewScore = played !== '' && inHand !== ''
+                  ? parseInt(played, 10) - parseInt(inHand, 10) * 2
                   : null;
 
                 return (
                   <React.Fragment key={p.id}>
-                    {/* Name cell */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       <div className="rounded-md font-black flex items-center justify-center flex-shrink-0"
-                        style={{ width: 28, height: 36, backgroundColor: c.bg, color: c.text, fontSize: '0.7rem' }}>
-                        {players.indexOf(p) + 1}
+                        style={{ width: 28, height: 36, backgroundColor: c.bg, color: c.text, fontSize: '0.7rem' }}
+                        aria-hidden="true">
+                        {index + 1}
                       </div>
                       <span className="font-bold text-sm truncate">{p.name}</span>
                     </div>
 
                     {mode === 'formula' ? (
                       <>
-                        <input type="number" min="0" max="40" inputMode="numeric" placeholder="0"
+                        <input type="number" min="0" max={MAX_PLAYED} inputMode="numeric" placeholder="0" data-entry
                           aria-label={`${p.name} cards played`}
                           style={inputStyle}
-                          value={fi?.cards_played ?? ''}
-                          onChange={e => setFormulaInputs(prev => ({ ...prev, [p.id]: { ...prev[p.id], cards_played: e.target.value } }))}
+                          value={played}
+                          onChange={e => setFormula(p.id, 'cards_played', e.target.value)}
                           required />
-                        <input type="number" min="0" max="10" inputMode="numeric" placeholder="0"
+                        <input type="number" min="0" max={MAX_IN_HAND} inputMode="numeric" placeholder="0" data-entry
                           aria-label={`${p.name} cards in hand`}
                           style={inputStyle}
-                          value={fi?.cards_in_hand ?? ''}
-                          onChange={e => setFormulaInputs(prev => ({ ...prev, [p.id]: { ...prev[p.id], cards_in_hand: e.target.value } }))}
+                          value={inHand}
+                          onChange={e => setFormula(p.id, 'cards_in_hand', e.target.value)}
                           required />
-                        <div className="font-black font-mono text-base text-center">
+                        <div className="font-black font-mono text-base text-center" aria-live="polite">
                           {previewScore !== null && !isNaN(previewScore)
                             ? <span style={{ color: scoreColor(previewScore) }}>{fmtScore(previewScore)}</span>
                             : <span style={{ color: border }}>—</span>}
                         </div>
                       </>
                     ) : (
-                      <input type="number" inputMode="numeric" placeholder="0"
+                      <input type="number" inputMode="numeric" placeholder="0" data-entry
                         aria-label={`${p.name} score`}
                         style={inputStyle}
                         value={directInputs[p.id] ?? ''}
@@ -400,10 +578,10 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
             </div>
 
             {error && <p className="text-sm mb-3" style={{ color: '#f87171' }} role="alert">{error}</p>}
-            <button type="submit"
-              className="w-full py-4 rounded-xl font-black uppercase tracking-widest text-base"
+            <button type="submit" disabled={saving}
+              className="w-full py-4 rounded-xl font-black uppercase tracking-widest text-base transition-opacity disabled:opacity-60"
               style={{ backgroundColor: '#e02020', color: '#fff' }}>
-              Save Round
+              {saving ? 'Saving…' : editingRound !== null ? `Update round ${editingRound}` : 'Save round'}
             </button>
           </form>
         </div>

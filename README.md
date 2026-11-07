@@ -25,12 +25,12 @@ a dead-simple webapp you run locally to track [Ligretto](https://en.wikipedia.or
 📊  live scoreboard         sorted by total, per-round breakdown
 🏆  winner tracking         crowns the winner on finish (ties share the trophy)
 ⚡  two input modes         formula (played − hand×2) or direct score entry
-📈  player stats            lifetime totals, avg per round, best/worst
+📈  player stats            lifetime totals, wins and ties, sortable table
 📤  csv export              download any game as a spreadsheet
-📥  tabular import          paste TSV scores to import a finished game
+📥  tabular import          paste scores separated by tabs, commas or semicolons
 🔐  read-only by default    sign in to make changes
 📱  mobile-friendly         big tap targets, numeric keyboard on phones
-🗑️  full edit control       delete rounds, rename players, trash and restore games
+🗑️  full edit control       edit or delete rounds, rename players, trash and restore games
 💾  local sqlite            one file, zero dependencies on the internet
 ```
 
@@ -136,7 +136,7 @@ npm run dev        # frontend + backend, watch mode
 npm run build      # type-check + production build
 npm run typecheck  # type-check frontend and server without emitting
 npm run lint       # eslint
-npm test           # server unit tests (node:test)
+npm test           # unit tests for server and import parsing (node:test)
 npm run server     # backend only
 npm run preview    # preview the production build
 ```

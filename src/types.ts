@@ -48,4 +48,8 @@ export interface PlayerStats {
   avg_score_per_round: number;
   best_round: number | null;
   worst_round: number | null;
+  /** Finished games won outright. */
+  wins: number;
+  /** Finished games shared with another player. */
+  ties: number;
 }

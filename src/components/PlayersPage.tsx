@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
+import { useFeedback } from '../feedback';
 import type { Player } from '../types';
 import { PLAYER_COLORS, surface, border, muted } from '../theme';
 
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function PlayersPage({ canEdit }: Props) {
+  const { toast, confirm } = useFeedback();
   const [players, setPlayers] = useState<Player[]>([]);
   const [name, setName] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -28,14 +30,18 @@ export default function PlayersPage({ canEdit }: Props) {
       await action();
       onSuccess?.();
       load();
+      return true;
     } catch (err) {
       setError((err as Error).message);
+      return false;
     }
   };
 
-  const add = (e: React.FormEvent) => {
+  const add = async (e: React.FormEvent) => {
     e.preventDefault();
-    return run(() => api.players.create(name), () => setName(''));
+    const trimmed = name.trim();
+    const ok = await run(() => api.players.create(trimmed), () => setName(''));
+    if (ok) toast(`Added ${trimmed.replace(/\s+/g, ' ')}`, 'success');
   };
 
   const startRename = (player: Player) => {
@@ -44,16 +50,23 @@ export default function PlayersPage({ canEdit }: Props) {
     setError('');
   };
 
-  const saveRename = (e: React.FormEvent) => {
+  const saveRename = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId === null) return;
     const id = editingId;
-    return run(() => api.players.rename(id, editName), () => setEditingId(null));
+    const ok = await run(() => api.players.rename(id, editName), () => setEditingId(null));
+    if (ok) toast('Player renamed', 'success');
   };
 
-  const remove = (player: Player) => {
-    if (!window.confirm(`Remove ${player.name}? This cannot be undone.`)) return;
-    return run(() => api.players.delete(player.id));
+  const remove = async (player: Player) => {
+    const ok = await confirm({
+      title: `Remove ${player.name}?`,
+      message: 'Players with game history cannot be removed.',
+      confirmLabel: 'Remove player',
+      danger: true,
+    });
+    if (!ok) return;
+    if (await run(() => api.players.delete(player.id))) toast(`${player.name} removed`);
   };
 
   const inputStyle = {
