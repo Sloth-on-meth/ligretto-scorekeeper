@@ -10,28 +10,6 @@ interface Props {
   canEdit: boolean;
 }
 
-type InputMode = 'formula' | 'direct';
-
-const MODE_KEY = 'ligretto-entry-mode';
-const MAX_PLAYED = 40;
-const MAX_IN_HAND = 10;
-
-function readStoredMode(): InputMode {
-  try {
-    return localStorage.getItem(MODE_KEY) === 'direct' ? 'direct' : 'formula';
-  } catch {
-    return 'formula';
-  }
-}
-
-function storeMode(mode: InputMode) {
-  try {
-    localStorage.setItem(MODE_KEY, mode);
-  } catch {
-    // Storage can be unavailable (private mode); the preference is a convenience only.
-  }
-}
-
 function csvCell(value: string | number) {
   const text = String(value);
   if (!/[",\n]/.test(text)) return text;
@@ -82,14 +60,10 @@ const inputStyle: React.CSSProperties = {
   textAlign: 'center',
 };
 
-type FormulaEntry = { cards_played: string; cards_in_hand: string };
-
 export default function GameView({ gameId, onBack, canEdit }: Props) {
   const { toast, confirm } = useFeedback();
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [mode, setMode] = useState<InputMode>(readStoredMode);
-  const [formulaInputs, setFormulaInputs] = useState<Record<number, FormulaEntry>>({});
   const [directInputs, setDirectInputs] = useState<Record<number, string>>({});
   const [editingRound, setEditingRound] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -100,24 +74,14 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
     .then(d => {
       setDetail(d);
       setLoadError('');
-      const fi: Record<number, FormulaEntry> = {};
       const di: Record<number, string> = {};
-      d.players.forEach(p => {
-        fi[p.id] = { cards_played: '', cards_in_hand: '' };
-        di[p.id] = '';
-      });
-      setFormulaInputs(fi);
+      d.players.forEach(p => { di[p.id] = ''; });
       setDirectInputs(di);
       setEditingRound(null);
     })
     .catch(err => setLoadError((err as Error).message)), [gameId]);
 
   useEffect(() => { load(); }, [load]);
-
-  const changeMode = (next: InputMode) => {
-    setMode(next);
-    storeMode(next);
-  };
 
   if (!detail) {
     return loadError ? (
@@ -166,29 +130,19 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
 
   const startEditing = (roundNumber: number) => {
     const roundRows = scoreMap[roundNumber] ?? {};
-    const values = Object.values(roundRows);
-    const hasCards = values.every(v => v.cards_played !== null && v.cards_in_hand !== null);
-    const fi: Record<number, FormulaEntry> = {};
     const di: Record<number, string> = {};
     players.forEach(p => {
       const row = roundRows[p.id];
-      fi[p.id] = {
-        cards_played: row?.cards_played != null ? String(row.cards_played) : '',
-        cards_in_hand: row?.cards_in_hand != null ? String(row.cards_in_hand) : '',
-      };
       di[p.id] = row ? String(row.score) : '';
     });
-    setFormulaInputs(fi);
     setDirectInputs(di);
     setEditingRound(roundNumber);
-    setMode(hasCards ? 'formula' : 'direct');
     setError('');
     requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
   };
 
   const cancelEditing = () => {
     setEditingRound(null);
-    setMode(readStoredMode());
     load();
   };
 
@@ -212,26 +166,8 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
     e.preventDefault();
     if (saving) return;
     setError('');
-    let scores: { player_id: number; score?: number; cards_played?: number; cards_in_hand?: number }[];
-
-    if (mode === 'direct') {
-      scores = players.map(p => ({ player_id: p.id, score: parseInt(directInputs[p.id] ?? '', 10) }));
-      if (scores.some(s => isNaN(s.score!))) return setError('Fill in every player’s score');
-    } else {
-      scores = players.map(p => ({
-        player_id: p.id,
-        cards_played: parseInt(formulaInputs[p.id]?.cards_played ?? '', 10),
-        cards_in_hand: parseInt(formulaInputs[p.id]?.cards_in_hand ?? '', 10),
-      }));
-      if (scores.some(s => isNaN(s.cards_played!) || isNaN(s.cards_in_hand!))) {
-        return setError('Fill in every player’s cards');
-      }
-      const outOfRange = scores.some(s =>
-        s.cards_played! < 0 || s.cards_played! > MAX_PLAYED || s.cards_in_hand! < 0 || s.cards_in_hand! > MAX_IN_HAND);
-      if (outOfRange) {
-        return setError(`Cards played must be 0–${MAX_PLAYED} and cards in hand 0–${MAX_IN_HAND}`);
-      }
-    }
+    const scores = players.map(p => ({ player_id: p.id, score: parseInt(directInputs[p.id] ?? '', 10) }));
+    if (scores.some(sc => isNaN(sc.score))) return setError('Enter a score for every player');
 
     setSaving(true);
     try {
@@ -283,10 +219,6 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
       toast((err as Error).message, 'error');
     }
   };
-
-  const fi = (playerId: number) => formulaInputs[playerId];
-  const setFormula = (playerId: number, field: keyof FormulaEntry, value: string) =>
-    setFormulaInputs(prev => ({ ...prev, [playerId]: { ...prev[playerId], [field]: value } }));
 
   return (
     <div>
@@ -408,8 +340,7 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                         return (
                           <td key={p.id} className="py-2.5 px-2 text-center font-mono font-bold text-sm">
                             {s ? (
-                              <span style={{ color: scoreColor(s.score) }}
-                                title={s.cards_played != null ? `Played: ${s.cards_played}, In hand: ${s.cards_in_hand}` : undefined}>
+                              <span style={{ color: scoreColor(s.score) }}>
                                 {fmtScore(s.score)}
                               </span>
                             ) : <span style={{ color: border }}>—</span>}
@@ -487,52 +418,23 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                 Round {nextRoundNumber}
               </p>
             )}
-            <div role="group" aria-label="Score entry mode" className="flex rounded-xl overflow-hidden text-xs font-black uppercase tracking-wide"
-              style={{ border: `1px solid ${border}` }}>
-              <button type="button" onClick={() => changeMode('formula')} aria-pressed={mode === 'formula'}
-                className="px-3 py-1.5 transition-all"
-                style={mode === 'formula' ? { backgroundColor: '#e02020', color: '#fff' } : { color: muted }}>
-                Formula
-              </button>
-              <button type="button" onClick={() => changeMode('direct')} aria-pressed={mode === 'direct'}
-                className="px-3 py-1.5 transition-all"
-                style={mode === 'direct' ? { backgroundColor: '#e02020', color: '#fff' } : { color: muted }}>
-                Direct
-              </button>
-            </div>
           </div>
 
           <form ref={formRef} onSubmit={submitRound} onKeyDown={onEntryKeyDown}>
-            <div className="mb-2 text-xs" style={{ color: muted }}>
-              {mode === 'formula'
-                ? 'Score = cards played − 2 × cards in hand. Press Enter to move to the next field.'
-                : 'Enter each player’s score. Press Enter to move to the next field.'}
-            </div>
+            <p className="mb-3 text-xs" style={{ color: muted }}>
+              Type each player’s score for this round. Press Enter to move to the next player.
+            </p>
             <div className="mb-4" style={{
               display: 'grid',
-              gridTemplateColumns: mode === 'formula' ? 'minmax(0,1fr) 1fr 1fr 48px' : 'minmax(0,1fr) 1fr',
+              gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)',
               gap: '8px',
               alignItems: 'center',
             }}>
               <div className="text-xs font-black uppercase tracking-wide" style={{ color: muted }}>Player</div>
-              {mode === 'formula' ? (
-                <>
-                  <div className="text-xs font-black uppercase tracking-wide text-center" style={{ color: muted }}>Played</div>
-                  <div className="text-xs font-black uppercase tracking-wide text-center" style={{ color: muted }}>In hand</div>
-                  <div className="text-xs font-black uppercase tracking-wide text-center" style={{ color: muted }}>Score</div>
-                </>
-              ) : (
-                <div className="text-xs font-black uppercase tracking-wide text-center" style={{ color: muted }}>Score</div>
-              )}
+              <div className="text-xs font-black uppercase tracking-wide text-center" style={{ color: muted }}>Score</div>
 
               {players.map((p, index) => {
                 const c = PLAYER_COLORS[playerColorIndex[p.id]];
-                const played = fi(p.id)?.cards_played ?? '';
-                const inHand = fi(p.id)?.cards_in_hand ?? '';
-                const previewScore = played !== '' && inHand !== ''
-                  ? parseInt(played, 10) - parseInt(inHand, 10) * 2
-                  : null;
-
                 return (
                   <React.Fragment key={p.id}>
                     <div className="flex items-center gap-2 min-w-0">
@@ -543,35 +445,12 @@ export default function GameView({ gameId, onBack, canEdit }: Props) {
                       </div>
                       <span className="font-bold text-sm truncate">{p.name}</span>
                     </div>
-
-                    {mode === 'formula' ? (
-                      <>
-                        <input type="number" min="0" max={MAX_PLAYED} inputMode="numeric" placeholder="0" data-entry
-                          aria-label={`${p.name} cards played`}
-                          style={inputStyle}
-                          value={played}
-                          onChange={e => setFormula(p.id, 'cards_played', e.target.value)}
-                          required />
-                        <input type="number" min="0" max={MAX_IN_HAND} inputMode="numeric" placeholder="0" data-entry
-                          aria-label={`${p.name} cards in hand`}
-                          style={inputStyle}
-                          value={inHand}
-                          onChange={e => setFormula(p.id, 'cards_in_hand', e.target.value)}
-                          required />
-                        <div className="font-black font-mono text-base text-center" aria-live="polite">
-                          {previewScore !== null && !isNaN(previewScore)
-                            ? <span style={{ color: scoreColor(previewScore) }}>{fmtScore(previewScore)}</span>
-                            : <span style={{ color: border }}>—</span>}
-                        </div>
-                      </>
-                    ) : (
-                      <input type="number" inputMode="numeric" placeholder="0" data-entry
-                        aria-label={`${p.name} score`}
-                        style={inputStyle}
-                        value={directInputs[p.id] ?? ''}
-                        onChange={e => setDirectInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
-                        required />
-                    )}
+                    <input type="number" inputMode="numeric" placeholder="0" data-entry
+                      aria-label={`${p.name} score`}
+                      style={inputStyle}
+                      value={directInputs[p.id] ?? ''}
+                      onChange={e => setDirectInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
+                      required />
                   </React.Fragment>
                 );
               })}
