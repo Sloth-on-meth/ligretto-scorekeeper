@@ -6,11 +6,13 @@ services:
     network_mode: bridge
     ports:
       - "3001:3001"
+    # Passwords and SESSION_SECRET come from .env (see .env.example).
+    env_file:
+      - path: .env
+        required: false
     environment:
       PORT: 3001
       DB_PATH: /data/ligretto.db
-      AUTH_PASSWORD: ${AUTH_PASSWORD:-ligretto-admin}
-      SESSION_SECRET: ${SESSION_SECRET:-change-this-session-secret}
     volumes:
       - ./data:/data
     restart: unless-stopped

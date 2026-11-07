@@ -25,7 +25,9 @@ export default function App() {
       .finally(() => setAuthLoading(false));
   }, []);
 
+  // Admins manage everything; players can start games and enter scores.
   const canEdit = auth.role === 'admin';
+  const canPlay = auth.role === 'admin' || auth.role === 'player';
 
   const login = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,11 +118,11 @@ export default function App() {
               <span className="text-xs font-bold uppercase tracking-wide" style={{ color: muted }}>
                 Checking auth…
               </span>
-            ) : canEdit ? (
+            ) : canPlay ? (
               <div className="flex items-center gap-2 self-start md:self-auto">
                 <span className="text-xs font-black uppercase tracking-wide px-2 py-1 rounded-lg"
                   style={{ backgroundColor: '#15502a', color: '#4ade80' }}>
-                  Admin
+                  {auth.role === 'admin' ? 'Admin' : 'Player'}
                 </span>
                 <button
                   onClick={logout}
@@ -140,8 +142,8 @@ export default function App() {
                     setPassword(e.target.value);
                     if (authError) setAuthError('');
                   }}
-                  placeholder="Admin password"
-                  aria-label="Admin password"
+                  placeholder="Password"
+                  aria-label="Password"
                   className="rounded-xl px-3 py-2 text-sm focus:outline-none flex-1 md:w-44"
                   style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: '#fff' }}
                 />
@@ -159,15 +161,15 @@ export default function App() {
       </header>
 
       <main className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 md:py-8">
-        {!authLoading && !canEdit && (
+        {!authLoading && !canPlay && (
           <div className="rounded-xl px-4 py-3 mb-6 text-sm" style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
             <span style={{ color: '#fff' }}>Read-only mode.</span>{' '}
-            <span style={{ color: muted }}>Sign in to create games, manage players, import scores, or change data.</span>
+            <span style={{ color: muted }}>Sign in to start games and enter scores.</span>
             {authError && <span style={{ color: '#f87171' }}> {authError}</span>}
           </div>
         )}
 
-        {tab === 'games' && <GamesPage key={gamesHomeSignal} canEdit={canEdit} />}
+        {tab === 'games' && <GamesPage key={gamesHomeSignal} canEdit={canEdit} canPlay={canPlay} />}
         {tab === 'players' && <PlayersPage canEdit={canEdit} />}
         {tab === 'stats' && <StatsPage />}
       </main>

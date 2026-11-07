@@ -4,12 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"tsx watch server/index.ts\" \"vite\"",
+    "dev": "concurrently \"tsx watch --env-file-if-exists=.env server/index.ts\" \"vite\"",
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "server": "tsx server/index.ts",
-    "start": "node dist-server/index.js",
+    "server": "tsx --env-file-if-exists=.env server/index.ts",
+    "start": "node --env-file-if-exists=.env dist-server/index.js",
     "test": "node --import tsx --test server/*.test.ts src/lib/*.test.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.server.json --noEmit"
   },

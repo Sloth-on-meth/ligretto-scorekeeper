@@ -4,7 +4,7 @@ export interface Player {
   created_at: string;
 }
 
-export type Role = 'admin';
+export type Role = 'admin' | 'player';
 
 export interface AuthSession {
   authenticated: boolean;
