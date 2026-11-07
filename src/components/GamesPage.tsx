@@ -210,7 +210,7 @@ export default function GamesPage({ canEdit, canPlay }: Props) {
           </div>
 
           {!canPlay ? (
-            <p className="text-sm" style={{ color: muted }}>Read-only. Sign in to start a game.</p>
+            <p className="text-sm" style={{ color: muted }}>Sign in to start a game.</p>
           ) : players.length < 2 ? (
             <p className="text-sm" style={{ color: muted }}>Add at least 2 players on the Players tab first.</p>
           ) : (

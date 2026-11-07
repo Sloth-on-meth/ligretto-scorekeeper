@@ -235,6 +235,17 @@ function getRoundRows(roundId: number | bigint | string) {
   `).all(roundId);
 }
 
+// --- Health (used by Docker healthchecks; no auth, no data) ---
+
+app.get('/api/health', (_req, res) => {
+  try {
+    db.prepare('SELECT 1').get();
+    res.json({ status: 'ok' });
+  } catch {
+    res.status(503).json({ status: 'error' });
+  }
+});
+
 // --- Auth ---
 
 app.get('/api/auth/session', (req, res) => {
