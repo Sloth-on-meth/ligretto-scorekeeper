@@ -15,11 +15,13 @@ export default function PlayersPage({ canEdit }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
   const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(() => {
     api.players.list()
       .then(setPlayers)
-      .catch(err => setError((err as Error).message));
+      .catch(err => setError((err as Error).message))
+      .finally(() => setLoaded(true));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -181,7 +183,7 @@ export default function PlayersPage({ canEdit }: Props) {
             </li>
           );
         })}
-        {players.length === 0 && (
+        {loaded && players.length === 0 && (
           <div className="text-center py-16" style={{ color: muted }}>
             <div className="flex justify-center gap-1 mb-4" aria-hidden="true">
               {PLAYER_COLORS.map((c, i) => (

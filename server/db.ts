@@ -1,18 +1,25 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { toTitleCase } from './logic.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const defaultDbPath = path.join(__dirname, '..', 'data', 'ligretto.db');
-const dbPath = process.env.DB_PATH ?? defaultDbPath;
-fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-const db = new Database(dbPath);
+/**
+ * Opens (creating if needed) the SQLite database at `dbPath`, applies the schema
+ * and any data migrations, and returns the connection.
+ */
+export function openDatabase(dbPath: string): Database.Database {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
 
+  migrate(db);
+  return db;
+}
+
+function migrate(db: Database.Database) {
 db.exec(`
   CREATE TABLE IF NOT EXISTS players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,4 +169,4 @@ const mergeDuplicatePlayers = db.transaction(() => {
 mergeDuplicatePlayers();
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS players_name_nocase ON players(name COLLATE NOCASE)');
 
-export default db;
+}

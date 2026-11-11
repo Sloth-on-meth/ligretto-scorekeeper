@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import PlayersPage from './components/PlayersPage';
 import GamesPage from './components/GamesPage';
 import StatsPage from './components/StatsPage';
-import { api } from './api';
+import { api, SESSION_EXPIRED_EVENT } from './api';
 import { useFeedback } from './feedback';
 import type { AuthSession } from './types';
 import { surface, border, muted } from './theme';
@@ -18,6 +18,16 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
+
+  // When a request says the sign-in has ended, drop back to read-only and say so.
+  useEffect(() => {
+    const onExpired = () => {
+      setAuth({ authenticated: false, role: null });
+      toast('Your session has ended. Sign in again to continue.', 'error');
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, [toast]);
 
   useEffect(() => {
     api.auth.session()

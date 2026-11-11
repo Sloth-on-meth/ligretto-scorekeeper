@@ -33,8 +33,18 @@ export default function FeedbackProvider({ children }: { children: ReactNode }) 
     }, TOAST_MS);
   }, []);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
   const confirm = useCallback((options: ConfirmOptions) => new Promise<boolean>(resolve => {
-    setPending({ ...options, resolve });
+    // Remember what had focus so keyboard users land back where they were.
+    const opener = document.activeElement as HTMLElement | null;
+    setPending({
+      ...options,
+      resolve: (ok: boolean) => {
+        resolve(ok);
+        opener?.focus?.();
+      },
+    });
   }), []);
 
   const settle = (ok: boolean) => {
@@ -45,9 +55,25 @@ export default function FeedbackProvider({ children }: { children: ReactNode }) 
   useEffect(() => {
     if (!pending) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      pending.resolve(false);
-      setPending(null);
+      if (e.key === 'Escape') {
+        pending.resolve(false);
+        setPending(null);
+        return;
+      }
+      if (e.key === 'Tab' && dialogRef.current) {
+        // Keep Tab cycling inside the dialog while it is open.
+        const items = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled])'));
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -74,7 +100,7 @@ export default function FeedbackProvider({ children }: { children: ReactNode }) 
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
           style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
           onMouseDown={e => { if (e.target === e.currentTarget) settle(false); }}>
-          <div role="dialog" aria-modal="true" aria-labelledby="confirm-title"
+          <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="confirm-title"
             className="w-full max-w-sm rounded-2xl p-5"
             style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
             <h3 id="confirm-title" className="text-lg font-black uppercase tracking-wide mb-2">{pending.title}</h3>

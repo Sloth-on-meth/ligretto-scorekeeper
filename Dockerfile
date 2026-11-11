@@ -33,4 +33,4 @@ USER node
 
 EXPOSE 3001
 
-CMD ["npm", "run", "start"]
+CMD ["node", "dist-server/index.js"]

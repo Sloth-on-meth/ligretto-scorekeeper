@@ -91,7 +91,7 @@ cp .env.example .env
 | `SESSION_SECRET` | yes | signs session cookies. use a long random string, e.g. `openssl rand -hex 32` |
 | `COOKIE_SECURE` | no | set to `true` when served over https |
 
-the app refuses to start if `AUTH_PASSWORD` or `SESSION_SECRET` is missing.
+the app checks its configuration on startup and lists every problem it finds. it refuses to start if `AUTH_PASSWORD` or `SESSION_SECRET` is missing, too short, or still set to the example value. `AUTH_PASSWORD` needs at least 8 characters, `SESSION_SECRET` at least 16, and the player password must differ from the admin one.
 
 logged-out visitors can browse everything in read-only mode. signing in with the player password lets you start games and enter scores. the admin password unlocks everything else.
 
@@ -132,6 +132,7 @@ if you later publish this image to a registry, `docker compose pull && docker co
 | `PLAYER_PASSWORD` | unset (player sign-in disabled) | player sign-in password: start games and enter scores |
 | `SESSION_SECRET` | *(required)* | signs session cookies |
 | `COOKIE_SECURE` | unset | set to `true` to mark the session cookie `Secure` (https only) |
+| `TRUST_PROXY` | unset | set to `true` when behind a reverse proxy, so rate limits apply per real client, not per proxy |
 | `DB_PATH` | `data/ligretto.db` | sqlite file location |
 | `PORT` | `3001` | api / production server port |
 
@@ -142,7 +143,7 @@ npm run dev        # frontend + backend, watch mode
 npm run build      # type-check + production build
 npm run typecheck  # type-check frontend and server without emitting
 npm run lint       # eslint
-npm test           # unit tests for server and import parsing (node:test)
+npm test           # API tests (real app, temp database), validation, score input and import parsing
 npm run server     # backend only
 npm run preview    # preview the production build
 ```

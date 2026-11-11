@@ -5,6 +5,9 @@
 export const MAX_CARDS = 40; // one Ligretto deck per player
 export const MAX_STACK = 10; // cards left in the Ligretto stack
 export const MAX_ABS_SCORE = 1000;
+export const MAX_NAME_LENGTH = 40;
+export const MAX_IMPORT_PLAYERS = 20;
+export const MAX_IMPORT_ROUNDS = 200;
 
 export function toTitleCase(value: string): string {
   return value
@@ -149,14 +152,22 @@ export function findWinners(totals: { name: string; total: number }[]): string[]
     .sort((a, b) => a.localeCompare(b));
 }
 
-/** Basic fixed-window rate limiter keyed by string (e.g. client IP). */
+/** Fixed-window rate limiter keyed by string (e.g. client IP). Forgets expired keys so memory stays bounded. */
 export function createRateLimiter(maxAttempts: number, windowMs: number, now: () => number = Date.now) {
   const buckets = new Map<string, { count: number; resetAt: number }>();
+  const PRUNE_THRESHOLD = 5000;
+
+  function prune(current: number) {
+    for (const [key, bucket] of buckets) {
+      if (bucket.resetAt <= current) buckets.delete(key);
+    }
+  }
 
   return {
     /** Records an attempt. Returns false when the key is over the limit. */
     hit(key: string): boolean {
       const current = now();
+      if (buckets.size > PRUNE_THRESHOLD) prune(current);
       const bucket = buckets.get(key);
       if (!bucket || bucket.resetAt <= current) {
         buckets.set(key, { count: 1, resetAt: current + windowMs });
@@ -168,5 +179,23 @@ export function createRateLimiter(maxAttempts: number, windowMs: number, now: ()
     reset(key: string) {
       buckets.delete(key);
     },
+    /** Number of tracked keys (for tests and diagnostics). */
+    size() {
+      return buckets.size;
+    },
   };
+}
+
+/**
+ * Validates a player name after normalisation. Returns the cleaned name, or an error message.
+ */
+export function validatePlayerName(value: unknown): { ok: true; name: string } | { ok: false; error: string } {
+  if (typeof value !== 'string') return { ok: false, error: 'Name is required' };
+  if ([...value].some(ch => ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127)) {
+    return { ok: false, error: 'Name contains invalid characters' };
+  }
+  const name = normalizePlayerName(value);
+  if (!name) return { ok: false, error: 'Name is required' };
+  if (name.length > MAX_NAME_LENGTH) return { ok: false, error: `Name must be ${MAX_NAME_LENGTH} characters or fewer` };
+  return { ok: true, name };
 }
