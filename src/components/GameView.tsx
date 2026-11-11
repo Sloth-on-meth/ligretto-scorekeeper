@@ -3,12 +3,15 @@ import { api } from '../api';
 import { useFeedback } from '../feedback';
 import type { GameDetail, RoundScore } from '../types';
 import { PLAYER_COLORS, surface, border, muted } from '../theme';
+import { sanitizeScore, toggleSign, parseScore } from '../lib/score';
+import { formatDateTime } from '../lib/dates';
 
 interface Props {
   gameId: number;
   onBack: () => void;
   canEdit: boolean;
   canPlay: boolean;
+  backLabel?: string;
 }
 
 function csvCell(value: string | number) {
@@ -61,33 +64,63 @@ const inputStyle: React.CSSProperties = {
   textAlign: 'center',
 };
 
-export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
+export default function GameView({ gameId, onBack, canEdit, canPlay, backLabel = '← All games' }: Props) {
   const { toast, confirm } = useFeedback();
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [refreshError, setRefreshError] = useState('');
   const [directInputs, setDirectInputs] = useState<Record<number, string>>({});
   const [editingRound, setEditingRound] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [justSavedRound, setJustSavedRound] = useState<number | null>(null);
   const [error, setError] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
 
-  const load = useCallback(() => api.games.get(gameId)
+  // Reloads the game. Typed scores are kept unless `resetEntry` is set, so a background
+  // refresh (e.g. switching back to this tab) never wipes a half-typed round.
+  const load = useCallback((options: { resetEntry?: boolean } = {}) => api.games.get(gameId)
     .then(d => {
       setDetail(d);
       setLoadError('');
-      const di: Record<number, string> = {};
-      d.players.forEach(p => { di[p.id] = ''; });
-      setDirectInputs(di);
-      setEditingRound(null);
+      setRefreshError('');
+      if (options.resetEntry) {
+        const di: Record<number, string> = {};
+        d.players.forEach(p => { di[p.id] = ''; });
+        setDirectInputs(di);
+        setEditingRound(null);
+      } else {
+        // Keep editing a round only while it still exists.
+        setEditingRound(prev => (prev !== null && d.rounds.some(r => r.round_number === prev) ? prev : null));
+      }
     })
-    .catch(err => setLoadError((err as Error).message)), [gameId]);
+    .catch(err => {
+      const message = (err as Error).message;
+      setDetail(current => {
+        if (current === null) setLoadError(message);
+        else setRefreshError(message);
+        return current;
+      });
+    }), [gameId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load({ resetEntry: true }); }, [load]);
+
+  // Scores change on other phones during game night; pick them up when this one is looked at again.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [load]);
 
   if (!detail) {
     return loadError ? (
       <div>
-        <button onClick={onBack} className="text-sm font-bold mb-5" style={{ color: muted }}>← All games</button>
+        <button onClick={onBack} className="text-sm font-bold mb-5" style={{ color: muted }}>{backLabel}</button>
         <p className="text-sm" style={{ color: '#f87171' }} role="alert">Could not load this game: {loadError}</p>
       </div>
     ) : (
@@ -146,7 +179,7 @@ export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
 
   const cancelEditing = () => {
     setEditingRound(null);
-    load();
+    load({ resetEntry: true });
   };
 
   const focusFirstField = () => {
@@ -169,7 +202,7 @@ export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
     e.preventDefault();
     if (saving) return;
     setError('');
-    const scores = players.map(p => ({ player_id: p.id, score: parseInt(directInputs[p.id] ?? '', 10) }));
+    const scores = players.map(p => ({ player_id: p.id, score: parseScore(directInputs[p.id] ?? '') ?? NaN }));
     if (scores.some(sc => isNaN(sc.score))) return setError('Enter a score for every player');
 
     setSaving(true);
@@ -181,10 +214,13 @@ export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
         await api.rounds.add(gameId, scores);
         toast(`Round ${nextRoundNumber} saved`, 'success');
       }
-      await load();
+      setJustSavedRound(editingRound ?? nextRoundNumber);
+      await load({ resetEntry: true });
       requestAnimationFrame(focusFirstField);
     } catch (err) {
       setError((err as Error).message);
+      // The game may have changed underneath us (e.g. finished on another device); show the latest.
+      load();
     } finally {
       setSaving(false);
     }
@@ -232,7 +268,7 @@ export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
         onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
         onMouseLeave={e => (e.currentTarget.style.color = muted)}
       >
-        ← All games
+        {backLabel}
       </button>
 
       {/* Header */}
@@ -240,7 +276,7 @@ export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
         <div className="min-w-0">
           <h2 className="text-2xl font-black uppercase tracking-wide">Game #{game.id}</h2>
           <p className="text-xs mt-0.5" style={{ color: muted }}>
-            {new Date(game.started_at).toLocaleString()} · {roundNumbers.length} {roundNumbers.length === 1 ? 'round' : 'rounds'}
+            {formatDateTime(game.started_at)} · {roundNumbers.length} {roundNumbers.length === 1 ? 'round' : 'rounds'}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -276,10 +312,16 @@ export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
         </div>
       </div>
 
+      {refreshError && (
+        <p className="text-xs mb-4 rounded-lg px-3 py-2" role="status" style={{ backgroundColor: '#2a1010', color: '#fca5a5' }}>
+          Couldn’t refresh this game ({refreshError}). Showing the last known scores.
+        </p>
+      )}
+
       {/* Result banner */}
       {winners.length > 0 && (
-        <div className="rounded-2xl px-4 py-3 mb-6 flex items-center gap-3 font-black uppercase tracking-wide"
-          style={{ backgroundColor: '#e02020', color: '#fff' }} role="status">
+        <div className="shimmer rounded-2xl px-4 py-3 mb-6 flex items-center gap-3 font-black uppercase tracking-wide anim-pop"
+          style={{ background: 'linear-gradient(135deg, var(--red-bright), var(--red))', color: '#fff', boxShadow: '0 10px 30px rgba(224,32,32,.35)' }} role="status">
           <span aria-hidden="true" className="text-xl">🏆</span>
           <span>{winners.length === 1 ? `${winners[0].name} wins` : `Tie: ${winners.map(w => w.name).join(' & ')}`}</span>
           <span className="ml-auto font-mono text-base">{topTotal}</span>
@@ -343,7 +385,7 @@ export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
                         return (
                           <td key={p.id} className="py-2.5 px-2 text-center font-mono font-bold text-sm">
                             {s ? (
-                              <span style={{ color: scoreColor(s.score) }}>
+                              <span className={r === justSavedRound ? 'inline-block anim-pop' : 'inline-block'} style={{ color: scoreColor(s.score) }}>
                                 {fmtScore(s.score)}
                               </span>
                             ) : <span style={{ color: border }}>—</span>}
@@ -448,12 +490,23 @@ export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
                       </div>
                       <span className="font-bold text-sm truncate">{p.name}</span>
                     </div>
-                    <input type="number" inputMode="numeric" placeholder="0" data-entry
-                      aria-label={`${p.name} score`}
-                      style={inputStyle}
-                      value={directInputs[p.id] ?? ''}
-                      onChange={e => setDirectInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
-                      required />
+                    <div className="flex items-stretch gap-2 min-w-0">
+                      <input type="text" inputMode="numeric" autoComplete="off" placeholder="0" data-entry
+                        aria-label={`${p.name} score`}
+                        className="flex-1 min-w-0"
+                        style={inputStyle}
+                        value={directInputs[p.id] ?? ''}
+                        onChange={e => setDirectInputs(prev => ({ ...prev, [p.id]: sanitizeScore(e.target.value) }))}
+                        required />
+                      <button type="button"
+                        onClick={() => setDirectInputs(prev => ({ ...prev, [p.id]: toggleSign(prev[p.id] ?? '') }))}
+                        aria-label={`Toggle ${p.name}'s score between positive and negative`}
+                        title="Make negative / positive"
+                        className="flex-shrink-0 px-3 rounded-xl font-black text-lg"
+                        style={{ backgroundColor: '#111118', border: `1px solid ${border}`, color: muted, minWidth: 48 }}>
+                        ±
+                      </button>
+                    </div>
                   </React.Fragment>
                 );
               })}
@@ -461,8 +514,7 @@ export default function GameView({ gameId, onBack, canEdit, canPlay }: Props) {
 
             {error && <p className="text-sm mb-3" style={{ color: '#f87171' }} role="alert">{error}</p>}
             <button type="submit" disabled={saving}
-              className="w-full py-4 rounded-xl font-black uppercase tracking-widest text-base transition-opacity disabled:opacity-60"
-              style={{ backgroundColor: '#e02020', color: '#fff' }}>
+              className="btn-primary w-full py-4 rounded-xl font-black uppercase tracking-widest text-base">
               {saving ? 'Saving…' : editingRound !== null ? `Update round ${editingRound}` : 'Save round'}
             </button>
           </form>

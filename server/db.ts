@@ -1,18 +1,49 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { toTitleCase } from './logic.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const defaultDbPath = path.join(__dirname, '..', 'data', 'ligretto.db');
-const dbPath = process.env.DB_PATH ?? defaultDbPath;
-fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-const db = new Database(dbPath);
+/**
+ * Opens (creating if needed) the SQLite database at `dbPath`, applies the schema
+ * and any data migrations, and returns the connection.
+ */
+export function openDatabase(dbPath: string, groupNames: string[] = []): Database.Database {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
 
+  migrate(db);
+  for (const name of groupNames) ensureGroup(db, name);
+  return db;
+}
+
+/** Creates a group if it doesn't exist yet. Group names are lowercase and unique. */
+export function ensureGroup(db: Database.Database, name: string): number {
+  db.prepare('INSERT OR IGNORE INTO groups (name) VALUES (?)').run(name);
+  const row = db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number };
+  return row.id;
+}
+
+/** Players who were added to the otjes group when it was first set up. */
+export const OTJES_PLAYERS = [
+  'Sam', 'Amber', 'Colin', 'Syla', 'Els', 'Jodi', 'Julia', 'Leon', 'Maaike', 'Mick',
+  'Maarten', 'Matthys', 'Nick', 'Sofie', 'Sterre', 'Steve', 'Ties',
+];
+
+/** Applies a named data migration exactly once. */
+function runOnce(db: Database.Database, name: string, work: () => void) {
+  const done = db.prepare('SELECT 1 FROM schema_migrations WHERE name = ?').get(name);
+  if (done) return;
+  db.transaction(() => {
+    work();
+    db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(name);
+  })();
+}
+
+function migrate(db: Database.Database) {
 db.exec(`
   CREATE TABLE IF NOT EXISTS players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,6 +93,29 @@ db.exec(`
     SELECT RAISE(ABORT, 'Cannot delete a player with game history');
   END;
 `);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+  );
+`);
+
+const hasGroupId = (table: string) => db.prepare(`
+  SELECT 1 FROM pragma_table_info('${table}') WHERE name = 'group_id'
+`).get();
+
+if (!hasGroupId('players')) {
+  db.exec('ALTER TABLE players ADD COLUMN group_id INTEGER REFERENCES groups(id)');
+}
+if (!hasGroupId('games')) {
+  db.exec('ALTER TABLE games ADD COLUMN group_id INTEGER REFERENCES groups(id)');
+}
 
 const hasDeletedAt = db.prepare(`
   SELECT 1
@@ -161,5 +215,17 @@ const mergeDuplicatePlayers = db.transaction(() => {
 
 mergeDuplicatePlayers();
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS players_name_nocase ON players(name COLLATE NOCASE)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_players_group ON players(group_id)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_games_group ON games(group_id)');
 
-export default db;
+runOnce(db, 'seed-otjes-players', () => {
+  const groupId = ensureGroup(db, 'otjes');
+  const insert = db.prepare('INSERT OR IGNORE INTO players (name, group_id) VALUES (?, ?)');
+  const assign = db.prepare('UPDATE players SET group_id = ? WHERE name = ? COLLATE NOCASE');
+  for (const name of OTJES_PLAYERS) {
+    insert.run(name, groupId);
+    assign.run(groupId, name);
+  }
+});
+
+}

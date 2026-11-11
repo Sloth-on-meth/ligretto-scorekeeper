@@ -1,46 +1,259 @@
 @import "tailwindcss";
 
 :root {
-  --bg:       #111118;
-  --surface:  #1a1a24;
-  --border:   #2a2a38;
-  --text:     #ffffff;
-  --muted:    #8888aa;
-  --red:      #e02020;
-  --blue:     #1e50d4;
-  --green:    #1a9c38;
-  --yellow:   #d4a500;
+  color-scheme: dark;
+
+  --bg: #0c0c14;
+  --bg-2: #111119;
+  --surface: #171722;
+  --surface-2: #1d1d2a;
+  --border: #2a2a3a;
+  --border-strong: #3d3d52;
+  --text: #f4f4f8;
+  --muted: #8f8fae;
+
+  --red: #e02020;
+  --red-bright: #ff3b3b;
+  --blue: #2457e6;
+  --green: #1fae3d;
+  --yellow: #e0ad00;
+
+  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.55);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
+html { -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: var(--bg);
   color: var(--text);
-  font-family: system-ui, sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  background:
+    radial-gradient(900px 520px at 8% -8%, rgba(224, 32, 32, 0.16), transparent 60%),
+    radial-gradient(800px 520px at 108% 108%, rgba(36, 87, 230, 0.13), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
 }
 
-:root {
-  color-scheme: dark;
-}
-
-/* Keyboard users get a clear focus ring; mouse clicks don't. */
-:focus-visible {
-  outline: 2px solid #ff4d4d;
+/* Keyboard users get a clear focus ring; text fields use a glow instead. */
+:focus-visible:not(.field) {
+  outline: 2px solid var(--red-bright);
   outline-offset: 2px;
   border-radius: 6px;
 }
+
+/* ---- surfaces & controls ---- */
+
+.surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.card-lift {
+  transition: transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out), border-color 0.25s;
+}
+.card-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border-strong);
+}
+.card-lift:active { transform: translateY(0) scale(0.985); }
+
+.btn-primary {
+  color: #fff;
+  background: linear-gradient(135deg, var(--red-bright), var(--red));
+  box-shadow: 0 8px 24px rgba(224, 32, 32, 0.32);
+  transition: transform 0.2s var(--ease-out), box-shadow 0.2s, filter 0.2s, opacity 0.2s;
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(224, 32, 32, 0.42);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+.btn-primary:disabled { opacity: 0.4; box-shadow: none; cursor: not-allowed; }
+
+.btn-ghost {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
+}
+.btn-ghost:hover { background: rgba(255, 255, 255, 0.08); border-color: var(--border-strong); }
+.btn-ghost:active { transform: scale(0.97); }
+
+.field {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 0.75rem;
+  padding: 0.8rem 1rem;
+  font-weight: 600;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.field::placeholder { color: #5c5c78; }
+.field:focus {
+  outline: none;
+  border-color: var(--red-bright);
+  box-shadow: 0 0 0 3px rgba(224, 32, 32, 0.22);
+}
+
+.pill, .pill-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.pill { padding: 0.35rem 0.8rem; font-size: 0.7rem; }
+.pill-sm { padding: 0.15rem 0.5rem; font-size: 0.6rem; color: var(--muted); }
+
+.resume-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: 100%;
+  padding: 0.7rem 1.1rem;
+  border-radius: 999px;
+  font-weight: 800;
+  background: linear-gradient(135deg, rgba(255, 59, 59, 0.18), rgba(255, 59, 59, 0.06));
+  border: 1px solid rgba(255, 59, 59, 0.45);
+  color: var(--text);
+  transition: transform 0.2s var(--ease-out), box-shadow 0.2s, border-color 0.2s;
+}
+.resume-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(224, 32, 32, 0.25);
+  border-color: var(--red-bright);
+}
+
+.pulse-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: var(--red-bright);
+  box-shadow: 0 0 0 0 rgba(255, 59, 59, 0.6);
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+
+/* Landing action cards */
+.action-card { position: relative; overflow: hidden; min-height: 190px; }
+.action-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(280px 180px at 0% 0%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 70%);
+  pointer-events: none;
+  transition: opacity 0.3s;
+  opacity: 0.85;
+}
+.action-card:hover::before { opacity: 1; }
+.action-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.action-arrow {
+  position: absolute;
+  right: 1.4rem;
+  bottom: 1.3rem;
+  font-size: 1.25rem;
+  color: var(--muted);
+  transition: transform 0.25s var(--ease-out), color 0.25s;
+}
+.action-card:hover .action-arrow { transform: translateX(5px); color: var(--accent); }
+
+/* Winner banner highlight sweep */
+.shimmer { position: relative; overflow: hidden; }
+.shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.22) 50%, transparent 70%);
+  transform: translateX(-120%);
+  animation: shimmer 2.8s var(--ease-out) 0.6s 2;
+  pointer-events: none;
+}
+
+/* ---- motion ---- */
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pop {
+  0%   { transform: scale(0.6); opacity: 0; }
+  60%  { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); }
+}
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fan-in {
+  from { transform: rotate(0deg) translateY(10px); opacity: 0; }
+  to   { transform: rotate(var(--angle, 0deg)) translateY(0); opacity: 1; }
+}
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-4px); }
+  40%, 60% { transform: translateX(4px); }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 59, 59, 0.6); }
+  100% { box-shadow: 0 0 0 10px rgba(255, 59, 59, 0); }
+}
+@keyframes shimmer {
+  to { transform: translateX(120%); }
+}
+
+.anim-fade-up    { animation: fade-up 0.55s var(--ease-out) both; animation-delay: var(--delay, 0ms); }
+.anim-pop        { animation: pop 0.4s var(--ease-spring) both; }
+.anim-slide-down { animation: slide-down 0.35s var(--ease-out) both; }
+.anim-fan        { animation: fan-in 0.75s var(--ease-spring) both; animation-delay: var(--delay, 0ms); }
+.anim-shake      { animation: shake 0.45s ease both; }
+.anim-float      { animation: float 4.5s ease-in-out infinite; }
 
 /* Respect users who ask for less motion. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
 }
 
-/* Number inputs — hide spinners */
+/* Number inputs: hide spinners */
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 input[type=number] { -moz-appearance: textfield; }
