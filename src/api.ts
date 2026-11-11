@@ -1,4 +1,4 @@
-import type { AuthSession, Game, GameDetail, Player, PlayerStats } from './types';
+import type { AuthSession, Game, GameDetail, Group, Player, PlayerStats } from './types';
 
 const BASE = '/api';
 
@@ -56,9 +56,13 @@ export const api = {
     login: (password: string) => req<AuthSession>('/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
     logout: () => req<AuthSession>('/auth/logout', { method: 'POST' }),
   },
+  groups: {
+    list: () => req<Group[]>('/groups'),
+  },
   players: {
     list: () => req<Player[]>('/players'),
-    create: (name: string) => req<Player>('/players', { method: 'POST', body: JSON.stringify({ name }) }),
+    create: (name: string, group_id: number) =>
+      req<Player>('/players', { method: 'POST', body: JSON.stringify({ name, group_id }) }),
     rename: (id: number, name: string) => req<Player>(`/players/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
     delete: (id: number) => req<void>(`/players/${id}`, { method: 'DELETE' }),
   },
@@ -66,8 +70,8 @@ export const api = {
     list: () => req<Game[]>('/games'),
     trash: () => req<Game[]>('/games/trash'),
     create: (player_ids: number[]) => req<Game>('/games', { method: 'POST', body: JSON.stringify({ player_ids }) }),
-    import: (player_names: string[], rounds: { scores: { player_name: string; score: number }[] }[]) =>
-      req<Game>('/games/import', { method: 'POST', body: JSON.stringify({ player_names, rounds }) }),
+    import: (player_names: string[], rounds: { scores: { player_name: string; score: number }[] }[], group_id: number) =>
+      req<Game>('/games/import', { method: 'POST', body: JSON.stringify({ player_names, rounds, group_id }) }),
     get: (id: number) => req<GameDetail>(`/games/${id}`),
     finish: (id: number) => req<Game>(`/games/${id}/finish`, { method: 'PATCH' }),
     trashOne: (id: number) => req<Game>(`/games/${id}/trash`, { method: 'PATCH' }),

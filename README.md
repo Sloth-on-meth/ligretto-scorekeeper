@@ -28,7 +28,7 @@ a dead-simple webapp you run locally to track [Ligretto](https://en.wikipedia.or
 📈  player stats            lifetime totals, wins and ties, sortable table
 📤  csv export              download any game as a spreadsheet
 📥  tabular import          paste scores separated by tabs, commas or semicolons
-🔐  read-only by default    sign in to make changes
+🔐  private groups          each group signs in with its own password and sees only its own players and games
 📱  mobile-friendly         big tap targets, numeric keyboard on phones
 🗑️  full edit control       edit or delete rounds, rename players, trash and restore games
 💾  local sqlite            one file, zero dependencies on the internet
@@ -87,13 +87,15 @@ cp .env.example .env
 | variable | required | who it is for |
 |---|---|---|
 | `AUTH_PASSWORD` | yes | **admin**: everything, including editing or deleting rounds, finishing and trashing games, managing players, and importing |
-| `PLAYER_PASSWORD` | no | **player**: start games and enter round scores. Leave empty to turn off player sign-in |
+| `GROUP_<NAME>_PASSWORD` | at least one | **group members**: start games and enter scores for group `<name>` only. `GROUP_OTJES_PASSWORD` creates the `otjes` group |
 | `SESSION_SECRET` | yes | signs session cookies. use a long random string, e.g. `openssl rand -hex 32` |
 | `COOKIE_SECURE` | no | set to `true` when served over https |
 
 the app checks its configuration on startup and lists every problem it finds. it refuses to start if `AUTH_PASSWORD` or `SESSION_SECRET` is missing, too short, or still set to the example value. `AUTH_PASSWORD` needs at least 8 characters, `SESSION_SECRET` at least 16, and the player password must differ from the admin one.
 
-logged-out visitors can browse everything in read-only mode. signing in with the player password lets you start games and enter scores. the admin password unlocks everything else.
+everything is behind sign-in. a group password opens that group's players, games and stats, and lets you start games and enter scores. the admin password sees every group and unlocks editing, finishing, trashing, player management and import.
+
+the `otjes` group comes pre-loaded with: Sam, Amber, Colin, Syla, Els, Jodi, Julia, Leon, Maaike, Mick, Maarten, Matthys, Nick, Sofie, Sterre, Steve, Ties. this happens once, on first start; players you remove later stay removed.
 
 ### docker
 
@@ -129,7 +131,7 @@ if you later publish this image to a registry, `docker compose pull && docker co
 | variable | default | purpose |
 |---|---|---|
 | `AUTH_PASSWORD` | *(required)* | admin sign-in password |
-| `PLAYER_PASSWORD` | unset (player sign-in disabled) | player sign-in password: start games and enter scores |
+| `GROUP_<NAME>_PASSWORD` | none | one per group; members see only their own group |
 | `SESSION_SECRET` | *(required)* | signs session cookies |
 | `COOKIE_SECURE` | unset | set to `true` to mark the session cookie `Secure` (https only) |
 | `TRUST_PROXY` | unset | set to `true` when behind a reverse proxy, so rate limits apply per real client, not per proxy |

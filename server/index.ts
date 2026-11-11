@@ -22,7 +22,7 @@ if (!loaded.ok) {
 const settings = loaded.settings;
 for (const warning of settings.warnings) console.warn(`[config] ${warning}`);
 
-const db = openDatabase(settings.dbPath);
+const db = openDatabase(settings.dbPath, settings.groupNames);
 const app = createApp(db, { ...settings.app, distDir: settings.distDir });
 
 const server = app.listen(settings.port);

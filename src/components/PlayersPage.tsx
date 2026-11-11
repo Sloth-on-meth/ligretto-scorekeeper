@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { useFeedback } from '../feedback';
-import type { Player } from '../types';
+import type { Group, Player } from '../types';
 import { PLAYER_COLORS, surface, border, muted } from '../theme';
 
 interface Props {
@@ -16,13 +16,20 @@ export default function PlayersPage({ canEdit }: Props) {
   const [editName, setEditName] = useState('');
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupId, setGroupId] = useState<number | null>(null);
 
   const load = useCallback(() => {
-    api.players.list()
-      .then(setPlayers)
+    const groupList: Promise<Group[]> = canEdit ? api.groups.list() : Promise.resolve([]);
+    Promise.all([api.players.list(), groupList])
+      .then(([list, loadedGroups]) => {
+        setPlayers(list);
+        setGroups(loadedGroups);
+        setGroupId(prev => prev ?? loadedGroups[0]?.id ?? null);
+      })
       .catch(err => setError((err as Error).message))
       .finally(() => setLoaded(true));
-  }, []);
+  }, [canEdit]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -42,7 +49,8 @@ export default function PlayersPage({ canEdit }: Props) {
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
-    const ok = await run(() => api.players.create(trimmed), () => setName(''));
+    if (groupId === null) return setError('Choose a group for this player.');
+    const ok = await run(() => api.players.create(trimmed, groupId), () => setName(''));
     if (ok) toast(`Added ${trimmed.replace(/\s+/g, ' ')}`, 'success');
   };
 
@@ -87,20 +95,28 @@ export default function PlayersPage({ canEdit }: Props) {
       </div>
 
       {canEdit ? (
-        <form onSubmit={add} className="flex gap-2 mb-6">
+        <form onSubmit={add} className="flex flex-wrap gap-2 mb-6">
           <input
             aria-label="New player name"
-            className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none"
-            style={inputStyle}
+            className="field flex-1 min-w-[10rem] text-sm py-2.5"
             placeholder="Enter player name…"
             value={name}
             onChange={e => setName(e.target.value)}
             required
           />
+          {groups.length > 1 && (
+            <select
+              aria-label="Group for the new player"
+              className="field text-sm py-2.5"
+              value={groupId ?? ''}
+              onChange={e => setGroupId(Number(e.target.value))}
+            >
+              {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          )}
           <button
             type="submit"
-            className="px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-wide"
-            style={{ backgroundColor: '#e02020', color: '#fff' }}
+            className="btn-primary px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-wide"
           >
             Add
           </button>
@@ -153,6 +169,7 @@ export default function PlayersPage({ canEdit }: Props) {
                       {i + 1}
                     </div>
                     <span className="font-bold truncate">{p.name}</span>
+                    {canEdit && p.group_name && <span className="pill-sm flex-shrink-0">{p.group_name}</span>}
                   </div>
                   {canEdit && (
                     <div className="flex items-center gap-4 flex-shrink-0">

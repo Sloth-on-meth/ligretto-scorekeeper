@@ -16,10 +16,16 @@ import {
   validatePlayerName,
 } from './logic.js';
 
+export interface GroupCredential {
+  name: string;
+  password: string;
+}
+
 export interface AppConfig {
+  /** Admin password: sees and changes everything. */
   authPassword: string;
-  /** Empty string disables player sign-in. */
-  playerPassword: string;
+  /** Each group's password lets its members see and play only their own group. */
+  groups: GroupCredential[];
   sessionSecret: string;
   cookieSecure: boolean;
   /** Set when running behind a reverse proxy, so client IPs come from X-Forwarded-For. */
@@ -28,16 +34,32 @@ export interface AppConfig {
   distDir?: string;
 }
 
+type Role = 'admin' | 'player';
+
+interface SessionPayload {
+  role: Role;
+  /** Group the session is limited to. Null for admins, who see every group. */
+  groupId: number | null;
+  exp: number;
+}
+
+interface GameRow {
+  id: number;
+  started_at: string;
+  finished_at: string | null;
+  deleted_at: string | null;
+  group_id: number | null;
+}
+
+const SESSION_COOKIE = 'ligretto_session';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+
 export function createApp(db: Database.Database, config: AppConfig) {
   const AUTH_PASSWORD = config.authPassword;
-  const PLAYER_PASSWORD = config.playerPassword;
   const SESSION_SECRET = config.sessionSecret;
   const COOKIE_SECURE = config.cookieSecure;
-
-  const SESSION_COOKIE = 'ligretto_session';
-  const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
-  const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-  const LOGIN_MAX_ATTEMPTS = 10;
 
   const app = express();
   if (config.trustProxy) app.set('trust proxy', 1);
@@ -46,28 +68,7 @@ export function createApp(db: Database.Database, config: AppConfig) {
 
   const loginLimiter = createRateLimiter(LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS);
 
-  type Role = 'admin' | 'player';
-
-  interface SessionPayload {
-    role: Role;
-    exp: number;
-  }
-
-  interface ImportedRoundScore {
-    player_name: string;
-    score: number;
-  }
-
-  interface ImportedRound {
-    scores: ImportedRoundScore[];
-  }
-
-  interface GameRow {
-    id: number;
-    started_at: string;
-    finished_at: string | null;
-    deleted_at: string | null;
-  }
+  // --- helpers ---
 
   function getRouteParam(value: string | string[]) {
     return Array.isArray(value) ? value[0] : value;
@@ -87,8 +88,7 @@ export function createApp(db: Database.Database, config: AppConfig) {
 
   function encodeSession(payload: SessionPayload) {
     const data = base64UrlEncode(JSON.stringify(payload));
-    const signature = signSession(data);
-    return `${data}.${signature}`;
+    return `${data}.${signSession(data)}`;
   }
 
   function parseCookies(header?: string) {
@@ -112,26 +112,25 @@ export function createApp(db: Database.Database, config: AppConfig) {
     const [data, signature] = token.split('.');
     if (!data || !signature) return null;
 
-    const expectedSignature = signSession(data);
+    const expected = Buffer.from(signSession(data), 'utf8');
     const provided = Buffer.from(signature, 'utf8');
-    const expected = Buffer.from(expectedSignature, 'utf8');
     if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
       return null;
     }
 
     try {
       const payload = JSON.parse(base64UrlDecode(data)) as SessionPayload;
-      if (payload.exp <= Date.now()) return null;
-      if (payload.role !== 'admin' && payload.role !== 'player') return null;
-      return payload;
+      if (typeof payload.exp !== 'number' || payload.exp <= Date.now()) return null;
+      if (payload.role === 'admin') return { ...payload, groupId: null };
+      if (payload.role === 'player' && Number.isInteger(payload.groupId)) return payload;
+      return null;
     } catch {
       return null;
     }
   }
 
-  function getSession(req: express.Request) {
-    const cookies = parseCookies(req.headers.cookie);
-    return decodeSession(cookies[SESSION_COOKIE]);
+  function getSession(req: express.Request): SessionPayload | null {
+    return decodeSession(parseCookies(req.headers.cookie)[SESSION_COOKIE]);
   }
 
   function cookieAttributes(maxAgeSeconds: number) {
@@ -145,10 +144,9 @@ export function createApp(db: Database.Database, config: AppConfig) {
   }
 
   function setSessionCookie(res: express.Response, payload: SessionPayload) {
-    const token = encodeSession(payload);
     res.setHeader(
       'Set-Cookie',
-      `${SESSION_COOKIE}=${encodeURIComponent(token)}; ${cookieAttributes(Math.floor(SESSION_TTL_MS / 1000))}`,
+      `${SESSION_COOKIE}=${encodeURIComponent(encodeSession(payload))}; ${cookieAttributes(Math.floor(SESSION_TTL_MS / 1000))}`,
     );
   }
 
@@ -156,20 +154,28 @@ export function createApp(db: Database.Database, config: AppConfig) {
     res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; ${cookieAttributes(0)}`);
   }
 
-  function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  /** The group a session may see, or null for admins (all groups). */
+  function scopeOf(session: SessionPayload): number | null {
+    return session.role === 'admin' ? null : session.groupId;
+  }
+
+  function sessionFor(res: express.Response): SessionPayload {
+    return res.locals.session as SessionPayload;
+  }
+
+  // Requires any signed-in user. Each route then applies its group scope.
+  function requireMember(req: express.Request, res: express.Response, next: express.NextFunction) {
     const session = getSession(req);
-    if (!session || session.role !== 'admin') {
-      return res.status(session ? 403 : 401).json({ error: session ? 'Admin access required' : 'Sign in required' });
-    }
+    if (!session) return res.status(401).json({ error: 'Sign in required' });
+    res.locals.session = session;
     next();
   }
 
-  // Players and admins can start games and enter scores.
-  function requirePlayer(req: express.Request, res: express.Response, next: express.NextFunction) {
+  function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
     const session = getSession(req);
-    if (!session) {
-      return res.status(401).json({ error: 'Sign in required' });
-    }
+    if (!session) return res.status(401).json({ error: 'Sign in required' });
+    if (session.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+    res.locals.session = session;
     next();
   }
 
@@ -180,21 +186,36 @@ export function createApp(db: Database.Database, config: AppConfig) {
     return crypto.timingSafeEqual(inputDigest, expectedDigest);
   }
 
-  function getGameById(gameId: string | number) {
-    return db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as GameRow | undefined;
+  function groupById(id: number) {
+    return db.prepare('SELECT id, name FROM groups WHERE id = ?').get(id) as { id: number; name: string } | undefined;
   }
 
-  function getWinnersByGame(includeTrashed: boolean): Map<number, string[]> {
+  function groupIdByName(name: string) {
+    const row = db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number } | undefined;
+    return row?.id ?? null;
+  }
+
+  /** Loads a game only if the session may see it. Returns null for games outside the scope. */
+  function gameInScope(gameId: string | number, session: SessionPayload): GameRow | null {
+    const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as GameRow | undefined;
+    if (!game) return null;
+    const scope = scopeOf(session);
+    if (scope !== null && game.group_id !== scope) return null;
+    return game;
+  }
+
+  function getWinnersByGame(includeTrashed: boolean, scope: number | null): Map<number, string[]> {
     const rows = db.prepare(`
       SELECT gp.game_id AS game_id, p.name AS name, COALESCE(SUM(rs.score), 0) AS total
       FROM game_players gp
       JOIN games g ON g.id = gp.game_id AND g.finished_at IS NOT NULL
         ${includeTrashed ? '' : 'AND g.deleted_at IS NULL'}
+        AND (@scope IS NULL OR g.group_id = @scope)
       JOIN players p ON p.id = gp.player_id
       JOIN rounds r ON r.game_id = gp.game_id
       LEFT JOIN round_scores rs ON rs.round_id = r.id AND rs.player_id = gp.player_id
       GROUP BY gp.game_id, gp.player_id
-    `).all() as { game_id: number; name: string; total: number }[];
+    `).all({ scope }) as { game_id: number; name: string; total: number }[];
 
     const byGame = new Map<number, { name: string; total: number }[]>();
     for (const row of rows) {
@@ -210,19 +231,22 @@ export function createApp(db: Database.Database, config: AppConfig) {
     return winners;
   }
 
-  function getGames(includeDeleted: boolean) {
+  function getGames(includeDeleted: boolean, scope: number | null) {
     const games = db.prepare(`
       SELECT g.*,
+        grp.name AS group_name,
         (SELECT COUNT(*) FROM rounds WHERE game_id = g.id) AS round_count,
         (SELECT GROUP_CONCAT(p.name, ', ')
          FROM game_players gp JOIN players p ON p.id = gp.player_id
          WHERE gp.game_id = g.id) AS player_names
       FROM games g
+      LEFT JOIN groups grp ON grp.id = g.group_id
       WHERE g.deleted_at IS ${includeDeleted ? 'NOT' : ''} NULL
+        AND (@scope IS NULL OR g.group_id = @scope)
       ORDER BY COALESCE(g.deleted_at, g.started_at) DESC, g.id DESC
-    `).all() as (GameRow & { round_count: number; player_names: string | null })[];
+    `).all({ scope }) as (GameRow & { round_count: number; player_names: string | null; group_name: string | null })[];
 
-    const winners = getWinnersByGame(includeDeleted);
+    const winners = getWinnersByGame(includeDeleted, scope);
     return games.map(game => ({ ...game, winners: winners.get(game.id) ?? [] }));
   }
 
@@ -236,7 +260,30 @@ export function createApp(db: Database.Database, config: AppConfig) {
     `).all(roundId);
   }
 
-  // --- Health (used by Docker healthchecks; no auth, no data) ---
+  /** Checks a game exists, is in scope, and isn't trashed. Sends the error response itself. */
+  function findEditableRound(gameId: string, roundId: string, res: express.Response, session: SessionPayload) {
+    const game = gameInScope(gameId, session);
+    if (!game) {
+      res.status(404).json({ error: 'Game not found' });
+      return null;
+    }
+    if (game.deleted_at) {
+      res.status(409).json({ error: 'Cannot edit a deleted game' });
+      return null;
+    }
+    if (game.finished_at) {
+      res.status(409).json({ error: 'Cannot change rounds in a finished game' });
+      return null;
+    }
+    const round = db.prepare('SELECT id FROM rounds WHERE id = ? AND game_id = ?').get(roundId, gameId);
+    if (!round) {
+      res.status(404).json({ error: 'Round not found' });
+      return null;
+    }
+    return game;
+  }
+
+  // --- health ---
 
   app.get('/api/health', (_req, res) => {
     try {
@@ -247,13 +294,15 @@ export function createApp(db: Database.Database, config: AppConfig) {
     }
   });
 
-  // --- Auth ---
+  // --- auth ---
 
   app.get('/api/auth/session', (req, res) => {
     const session = getSession(req);
+    const group = session?.groupId != null ? groupById(session.groupId) : undefined;
     res.json({
       authenticated: Boolean(session),
       role: session?.role ?? null,
+      group: group ? { id: group.id, name: group.name } : null,
     });
   });
 
@@ -268,42 +317,80 @@ export function createApp(db: Database.Database, config: AppConfig) {
       return res.status(400).json({ error: 'Password is required' });
     }
 
-    let role: Role | null = null;
-    if (passwordsMatch(password, AUTH_PASSWORD)) role = 'admin';
-    else if (PLAYER_PASSWORD && passwordsMatch(password, PLAYER_PASSWORD)) role = 'player';
+    let session: SessionPayload | null = null;
+    if (passwordsMatch(password, AUTH_PASSWORD)) {
+      session = { role: 'admin', groupId: null, exp: Date.now() + SESSION_TTL_MS };
+    } else {
+      for (const group of config.groups) {
+        if (passwordsMatch(password, group.password)) {
+          const groupId = groupIdByName(group.name);
+          if (groupId !== null) {
+            session = { role: 'player', groupId, exp: Date.now() + SESSION_TTL_MS };
+          }
+          break;
+        }
+      }
+    }
 
-    if (!role) {
+    if (!session) {
       return res.status(401).json({ error: 'Invalid password' });
     }
 
     loginLimiter.reset(ip);
-    const payload: SessionPayload = {
-      role,
-      exp: Date.now() + SESSION_TTL_MS,
-    };
-    setSessionCookie(res, payload);
-    res.json({ authenticated: true, role: payload.role });
+    setSessionCookie(res, session);
+    const group = session.groupId != null ? groupById(session.groupId) : undefined;
+    res.json({
+      authenticated: true,
+      role: session.role,
+      group: group ? { id: group.id, name: group.name } : null,
+    });
   });
 
   app.post('/api/auth/logout', (_req, res) => {
     clearSessionCookie(res);
-    res.json({ authenticated: false, role: null });
+    res.json({ authenticated: false, role: null, group: null });
   });
 
-  // --- Players ---
+  // --- groups ---
 
-  app.get('/api/players', (_req, res) => {
-    const players = db.prepare('SELECT * FROM players ORDER BY name').all();
+  app.get('/api/groups', requireMember, (_req, res) => {
+    const scope = scopeOf(sessionFor(res));
+    res.json(db.prepare(`
+      SELECT id, name FROM groups
+      WHERE @scope IS NULL OR id = @scope
+      ORDER BY name
+    `).all({ scope }));
+  });
+
+  // --- players ---
+
+  app.get('/api/players', requireMember, (_req, res) => {
+    const scope = scopeOf(sessionFor(res));
+    const players = db.prepare(`
+      SELECT p.id, p.name, p.created_at, p.group_id, g.name AS group_name
+      FROM players p
+      LEFT JOIN groups g ON g.id = p.group_id
+      WHERE @scope IS NULL OR p.group_id = @scope
+      ORDER BY g.name, p.name
+    `).all({ scope });
     res.json(players);
   });
 
   app.post('/api/players', requireAdmin, (req, res) => {
     const check = validatePlayerName(req.body?.name);
     if (!check.ok) return res.status(400).json({ error: check.error });
+
+    const groupId = Number(req.body?.group_id);
+    if (!Number.isInteger(groupId) || !groupById(groupId)) {
+      return res.status(400).json({ error: 'Choose a group for this player' });
+    }
+
     try {
-      const result = db.prepare('INSERT INTO players (name) VALUES (?)').run(check.name);
-      const player = db.prepare('SELECT * FROM players WHERE id = ?').get(result.lastInsertRowid);
-      res.status(201).json(player);
+      const result = db.prepare('INSERT INTO players (name, group_id) VALUES (?, ?)').run(check.name, groupId);
+      res.status(201).json(db.prepare(`
+        SELECT p.id, p.name, p.created_at, p.group_id, g.name AS group_name
+        FROM players p LEFT JOIN groups g ON g.id = p.group_id WHERE p.id = ?
+      `).get(result.lastInsertRowid));
     } catch {
       res.status(409).json({ error: 'Player name already exists' });
     }
@@ -315,18 +402,48 @@ export function createApp(db: Database.Database, config: AppConfig) {
       return res.status(400).json({ error: 'Invalid player id' });
     }
 
-    const check = validatePlayerName(req.body?.name);
-    if (!check.ok) return res.status(400).json({ error: check.error });
-
-    const player = db.prepare('SELECT id FROM players WHERE id = ?').get(playerId);
+    const player = db.prepare('SELECT id, group_id FROM players WHERE id = ?').get(playerId) as
+      | { id: number; group_id: number | null }
+      | undefined;
     if (!player) return res.status(404).json({ error: 'Player not found' });
 
+    let name: string | undefined;
+    if (req.body?.name !== undefined) {
+      const check = validatePlayerName(req.body.name);
+      if (!check.ok) return res.status(400).json({ error: check.error });
+      name = check.name;
+    }
+
+    let groupId: number | undefined;
+    if (req.body?.group_id !== undefined) {
+      groupId = Number(req.body.group_id);
+      if (!Number.isInteger(groupId) || !groupById(groupId)) {
+        return res.status(400).json({ error: 'Choose a valid group' });
+      }
+      if (groupId !== player.group_id) {
+        const hasHistory = db.prepare(`
+          SELECT EXISTS(SELECT 1 FROM game_players WHERE player_id = ?) AS has_games
+        `).get(playerId) as { has_games: number };
+        if (hasHistory.has_games) {
+          return res.status(409).json({ error: 'Players with game history cannot be moved to another group' });
+        }
+      }
+    }
+
+    if (name === undefined && groupId === undefined) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
+
     try {
-      db.prepare('UPDATE players SET name = ? WHERE id = ?').run(check.name, playerId);
+      db.prepare('UPDATE players SET name = COALESCE(?, name), group_id = COALESCE(?, group_id) WHERE id = ?')
+        .run(name ?? null, groupId ?? null, playerId);
     } catch {
       return res.status(409).json({ error: 'Player name already exists' });
     }
-    res.json(db.prepare('SELECT * FROM players WHERE id = ?').get(playerId));
+    res.json(db.prepare(`
+      SELECT p.id, p.name, p.created_at, p.group_id, g.name AS group_name
+      FROM players p LEFT JOIN groups g ON g.id = p.group_id WHERE p.id = ?
+    `).get(playerId));
   });
 
   app.delete('/api/players/:id', requireAdmin, (req, res) => {
@@ -353,47 +470,52 @@ export function createApp(db: Database.Database, config: AppConfig) {
     res.status(204).end();
   });
 
-  // --- Games ---
+  // --- games ---
 
-  app.get('/api/games', (_req, res) => {
-    res.json(getGames(false));
+  app.get('/api/games', requireMember, (_req, res) => {
+    res.json(getGames(false, scopeOf(sessionFor(res))));
   });
 
-  app.get('/api/games/trash', (_req, res) => {
-    res.json(getGames(true));
+  app.get('/api/games/trash', requireMember, (_req, res) => {
+    res.json(getGames(true, scopeOf(sessionFor(res))));
   });
 
-  app.post('/api/games', requirePlayer, (req, res) => {
+  app.post('/api/games', requireMember, (req, res) => {
+    const session = sessionFor(res);
     const playerIds = normalizePlayerIds(req.body?.player_ids);
     if (!playerIds || playerIds.length < 2) {
       return res.status(400).json({ error: 'At least 2 players required' });
     }
 
-    const existingPlayers = db.prepare(`
-      SELECT id
-      FROM players
+    // Players outside the session's group count as unknown, so their existence isn't revealed.
+    const scope = scopeOf(session);
+    const found = db.prepare(`
+      SELECT id, group_id FROM players
       WHERE id IN (${playerIds.map(() => '?').join(', ')})
-    `).all(...playerIds) as { id: number }[];
+        AND (@scope IS NULL OR group_id = @scope)
+    `).all(...playerIds, { scope }) as { id: number; group_id: number | null }[];
 
-    if (existingPlayers.length !== playerIds.length) {
-      return res.status(400).json({ error: 'All players must exist before starting a game' });
+    if (found.length !== playerIds.length) {
+      return res.status(400).json({ error: 'All players must exist and belong to the same group' });
     }
+    const groups = new Set(found.map(p => p.group_id));
+    if (groups.size !== 1 || groups.has(null)) {
+      return res.status(400).json({ error: 'All players must belong to the same group' });
+    }
+    const groupId = [...groups][0] as number;
 
     try {
       const createGame = db.transaction(() => {
-        const result = db.prepare('INSERT INTO games DEFAULT VALUES').run();
+        const result = db.prepare('INSERT INTO games (group_id) VALUES (?)').run(groupId);
         const gameId = result.lastInsertRowid;
         const insertPlayer = db.prepare('INSERT INTO game_players (game_id, player_id) VALUES (?, ?)');
-
         for (const playerId of playerIds) {
           insertPlayer.run(gameId, playerId);
         }
-
         return db.prepare('SELECT * FROM games WHERE id = ?').get(gameId);
       });
 
-      const game = createGame();
-      res.status(201).json(game);
+      res.status(201).json(createGame());
     } catch {
       res.status(500).json({ error: 'Failed to create game' });
     }
@@ -402,9 +524,13 @@ export function createApp(db: Database.Database, config: AppConfig) {
   app.post('/api/games/import', requireAdmin, (req, res) => {
     const rawPlayers = Array.isArray(req.body?.player_names) ? req.body.player_names : null;
     const rawRounds = Array.isArray(req.body?.rounds) ? req.body.rounds : null;
+    const groupId = Number(req.body?.group_id);
 
     if (!rawPlayers || !rawRounds) {
       return res.status(400).json({ error: 'Player names and rounds are required' });
+    }
+    if (!Number.isInteger(groupId) || !groupById(groupId)) {
+      return res.status(400).json({ error: 'Choose a group for this game' });
     }
     if (rawPlayers.length > MAX_IMPORT_PLAYERS) {
       return res.status(400).json({ error: `Import supports up to ${MAX_IMPORT_PLAYERS} players` });
@@ -429,7 +555,7 @@ export function createApp(db: Database.Database, config: AppConfig) {
       return res.status(400).json({ error: 'At least 1 round is required' });
     }
 
-    const rounds = rawRounds as ImportedRound[];
+    const rounds = rawRounds as { scores: { player_name: string; score: number }[] }[];
     for (const round of rounds) {
       if (!Array.isArray(round?.scores) || round.scores.length !== playerNames.length) {
         return res.status(400).json({ error: 'Each round must include one score for each player' });
@@ -455,9 +581,10 @@ export function createApp(db: Database.Database, config: AppConfig) {
 
     try {
       const importGame = db.transaction(() => {
-        const selectPlayer = db.prepare('SELECT * FROM players WHERE name = ?');
-        const insertPlayer = db.prepare('INSERT INTO players (name) VALUES (?)');
-        const insertGame = db.prepare('INSERT INTO games DEFAULT VALUES');
+        const selectPlayer = db.prepare('SELECT id, group_id FROM players WHERE name = ? COLLATE NOCASE');
+        const insertPlayer = db.prepare('INSERT INTO players (name, group_id) VALUES (?, ?)');
+        const assignGroup = db.prepare('UPDATE players SET group_id = ? WHERE id = ?');
+        const insertGame = db.prepare('INSERT INTO games (group_id) VALUES (?)');
         const insertGamePlayer = db.prepare('INSERT INTO game_players (game_id, player_id) VALUES (?, ?)');
         const insertRound = db.prepare('INSERT INTO rounds (game_id, round_number) VALUES (?, ?)');
         const insertRoundScore = db.prepare(
@@ -466,26 +593,27 @@ export function createApp(db: Database.Database, config: AppConfig) {
 
         const playersByName = new Map<string, { id: number }>();
         for (const playerName of playerNames) {
-          let player = selectPlayer.get(playerName) as { id: number } | undefined;
+          let player = selectPlayer.get(playerName) as { id: number; group_id: number | null } | undefined;
           if (!player) {
-            const result = insertPlayer.run(playerName);
-            player = { id: Number(result.lastInsertRowid) };
+            const result = insertPlayer.run(playerName, groupId);
+            player = { id: Number(result.lastInsertRowid), group_id: groupId };
+          } else if (player.group_id === null) {
+            assignGroup.run(groupId, player.id);
+          } else if (player.group_id !== groupId) {
+            throw new ImportConflict(`${playerName} already belongs to another group`);
           }
           playersByName.set(playerName, player);
         }
 
-        const gameResult = insertGame.run();
+        const gameResult = insertGame.run(groupId);
         const gameId = Number(gameResult.lastInsertRowid);
 
         for (const playerName of playerNames) {
-          const player = playersByName.get(playerName)!;
-          insertGamePlayer.run(gameId, player.id);
+          insertGamePlayer.run(gameId, playersByName.get(playerName)!.id);
         }
 
         for (const [index, round] of rounds.entries()) {
-          const roundResult = insertRound.run(gameId, index + 1);
-          const roundId = Number(roundResult.lastInsertRowid);
-
+          const roundId = Number(insertRound.run(gameId, index + 1).lastInsertRowid);
           for (const score of round.scores) {
             const player = playersByName.get(normalizePlayerName(score.player_name))!;
             insertRoundScore.run(roundId, player.id, null, null, score.score);
@@ -496,58 +624,56 @@ export function createApp(db: Database.Database, config: AppConfig) {
         return db.prepare('SELECT * FROM games WHERE id = ?').get(gameId);
       });
 
-      const game = importGame();
-      res.status(201).json(game);
-    } catch {
+      res.status(201).json(importGame());
+    } catch (err) {
+      if (err instanceof ImportConflict) return res.status(409).json({ error: err.message });
       res.status(500).json({ error: 'Failed to import game' });
     }
   });
 
   app.patch('/api/games/:id/finish', requireAdmin, (req, res) => {
     const gameId = getRouteParam(req.params.id);
-    const game = getGameById(gameId);
+    const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as GameRow | undefined;
     if (!game) return res.status(404).json({ error: 'Game not found' });
     if (game.deleted_at) return res.status(409).json({ error: 'Cannot finish a deleted game' });
 
     // Idempotent: finishing an already-finished game keeps its original finish time.
     db.prepare("UPDATE games SET finished_at = datetime('now') WHERE id = ? AND finished_at IS NULL").run(gameId);
-    res.json(getGameById(gameId));
+    res.json(db.prepare('SELECT * FROM games WHERE id = ?').get(gameId));
   });
 
   app.patch('/api/games/:id/trash', requireAdmin, (req, res) => {
     const gameId = getRouteParam(req.params.id);
-    const game = getGameById(gameId);
+    const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as GameRow | undefined;
     if (!game) return res.status(404).json({ error: 'Game not found' });
     if (game.deleted_at) return res.status(409).json({ error: 'Game is already in the trash' });
 
     db.prepare("UPDATE games SET deleted_at = datetime('now') WHERE id = ?").run(gameId);
-    res.json(getGameById(gameId));
+    res.json(db.prepare('SELECT * FROM games WHERE id = ?').get(gameId));
   });
 
   app.patch('/api/games/:id/restore', requireAdmin, (req, res) => {
     const gameId = getRouteParam(req.params.id);
-    const game = getGameById(gameId);
+    const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as GameRow | undefined;
     if (!game) return res.status(404).json({ error: 'Game not found' });
     if (!game.deleted_at) return res.status(409).json({ error: 'Game is not in the trash' });
 
     db.prepare('UPDATE games SET deleted_at = NULL WHERE id = ?').run(gameId);
-    res.json(getGameById(gameId));
+    res.json(db.prepare('SELECT * FROM games WHERE id = ?').get(gameId));
   });
 
   app.delete('/api/games/:id', requireAdmin, (req, res) => {
     const gameId = getRouteParam(req.params.id);
-    const game = getGameById(gameId);
+    const game = db.prepare('SELECT id FROM games WHERE id = ?').get(gameId);
     if (!game) return res.status(404).json({ error: 'Game not found' });
 
     db.prepare('DELETE FROM games WHERE id = ?').run(gameId);
     res.status(204).end();
   });
 
-  // --- Game detail (players + rounds + scores) ---
-
-  app.get('/api/games/:id', (req, res) => {
+  app.get('/api/games/:id', requireMember, (req, res) => {
     const gameId = getRouteParam(req.params.id);
-    const game = getGameById(gameId);
+    const game = gameInScope(gameId, sessionFor(res));
     if (!game) return res.status(404).json({ error: 'Game not found' });
 
     const players = db.prepare(`
@@ -568,11 +694,11 @@ export function createApp(db: Database.Database, config: AppConfig) {
     res.json({ game, players, rounds });
   });
 
-  // --- Rounds ---
+  // --- rounds ---
 
-  app.post('/api/games/:id/rounds', requirePlayer, (req, res) => {
+  app.post('/api/games/:id/rounds', requireMember, (req, res) => {
     const gameId = getRouteParam(req.params.id);
-    const game = getGameById(gameId);
+    const game = gameInScope(gameId, sessionFor(res));
     if (!game) return res.status(404).json({ error: 'Game not found' });
     if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });
     if (game.finished_at) return res.status(409).json({ error: 'Cannot add rounds to a finished game' });
@@ -589,10 +715,8 @@ export function createApp(db: Database.Database, config: AppConfig) {
         'SELECT COALESCE(MAX(round_number), 0) AS max FROM rounds WHERE game_id = ?'
       ).get(gameId) as { max: number };
 
-      const roundResult = db.prepare(
-        'INSERT INTO rounds (game_id, round_number) VALUES (?, ?)'
-      ).run(gameId, max + 1);
-      const roundId = roundResult.lastInsertRowid;
+      const roundId = db.prepare('INSERT INTO rounds (game_id, round_number) VALUES (?, ?)')
+        .run(gameId, max + 1).lastInsertRowid;
 
       const insertScore = db.prepare(
         'INSERT INTO round_scores (round_id, player_id, cards_played, cards_in_hand, score) VALUES (?, ?, ?, ?, ?)'
@@ -607,32 +731,10 @@ export function createApp(db: Database.Database, config: AppConfig) {
     res.status(201).json(getRoundRows(roundId));
   });
 
-  function findEditableRound(gameId: string, roundId: string, res: express.Response) {
-    const game = getGameById(gameId);
-    if (!game) {
-      res.status(404).json({ error: 'Game not found' });
-      return null;
-    }
-    if (game.deleted_at) {
-      res.status(409).json({ error: 'Cannot edit a deleted game' });
-      return null;
-    }
-    if (game.finished_at) {
-      res.status(409).json({ error: 'Cannot change rounds in a finished game' });
-      return null;
-    }
-    const round = db.prepare('SELECT id FROM rounds WHERE id = ? AND game_id = ?').get(roundId, gameId);
-    if (!round) {
-      res.status(404).json({ error: 'Round not found' });
-      return null;
-    }
-    return game;
-  }
-
   app.put('/api/games/:gameId/rounds/:roundId', requireAdmin, (req, res) => {
     const gameId = getRouteParam(req.params.gameId);
     const roundId = getRouteParam(req.params.roundId);
-    if (!findEditableRound(gameId, roundId, res)) return;
+    if (!findEditableRound(gameId, roundId, res, sessionFor(res))) return;
 
     const gamePlayerIds = (db.prepare(
       'SELECT player_id FROM game_players WHERE game_id = ?'
@@ -657,7 +759,7 @@ export function createApp(db: Database.Database, config: AppConfig) {
   app.delete('/api/games/:gameId/rounds/:roundId', requireAdmin, (req, res) => {
     const gameId = getRouteParam(req.params.gameId);
     const roundId = getRouteParam(req.params.roundId);
-    const game = getGameById(gameId);
+    const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as GameRow | undefined;
     if (!game) return res.status(404).json({ error: 'Game not found' });
     if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });
     if (game.finished_at) return res.status(409).json({ error: 'Cannot change rounds in a finished game' });
@@ -667,12 +769,14 @@ export function createApp(db: Database.Database, config: AppConfig) {
     res.status(204).end();
   });
 
-  // --- Stats ---
+  // --- stats ---
 
-  app.get('/api/stats', (_req, res) => {
-    // Outright wins vs shared wins (ties), counted over finished, non-trashed games.
+  app.get('/api/stats', requireMember, (_req, res) => {
+    const scope = scopeOf(sessionFor(res));
+
+    // Outright wins vs shared wins (ties), over finished, non-trashed games in scope.
     const wins = new Map<string, { wins: number; ties: number }>();
-    for (const names of getWinnersByGame(false).values()) {
+    for (const names of getWinnersByGame(false, scope).values()) {
       for (const name of names) {
         const entry = wins.get(name) ?? { wins: 0, ties: 0 };
         if (names.length === 1) entry.wins += 1;
@@ -687,6 +791,7 @@ export function createApp(db: Database.Database, config: AppConfig) {
         FROM game_players gp
         JOIN games g ON g.id = gp.game_id
         WHERE g.deleted_at IS NULL
+          AND (@scope IS NULL OR g.group_id = @scope)
         GROUP BY gp.player_id
       ),
       round_stats AS (
@@ -701,6 +806,7 @@ export function createApp(db: Database.Database, config: AppConfig) {
         JOIN rounds r ON r.id = rs.round_id
         JOIN games g ON g.id = r.game_id
         WHERE g.deleted_at IS NULL
+          AND (@scope IS NULL OR g.group_id = @scope)
         GROUP BY rs.player_id
       )
       SELECT
@@ -719,15 +825,17 @@ export function createApp(db: Database.Database, config: AppConfig) {
       FROM players p
       LEFT JOIN game_counts gc ON gc.player_id = p.id
       LEFT JOIN round_stats rs ON rs.player_id = p.id
+      WHERE @scope IS NULL OR p.group_id = @scope
       ORDER BY total_score DESC, p.name
-    `).all();
+    `).all({ scope }) as { name: string }[];
+
     res.json(stats.map(row => {
-      const record = wins.get((row as { name: string }).name) ?? { wins: 0, ties: 0 };
-      return { ...(row as object), wins: record.wins, ties: record.ties };
+      const record = wins.get(row.name) ?? { wins: 0, ties: 0 };
+      return { ...row, wins: record.wins, ties: record.ties };
     }));
   });
 
-  // --- Static frontend + fallbacks ---
+  // --- static frontend + fallbacks ---
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Not found' });
@@ -758,3 +866,5 @@ export function createApp(db: Database.Database, config: AppConfig) {
 
   return app;
 }
+
+class ImportConflict extends Error {}

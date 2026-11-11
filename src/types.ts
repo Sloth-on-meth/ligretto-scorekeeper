@@ -1,7 +1,14 @@
+export interface Group {
+  id: number;
+  name: string;
+}
+
 export interface Player {
   id: number;
   name: string;
   created_at: string;
+  group_id: number | null;
+  group_name?: string | null;
 }
 
 export type Role = 'admin' | 'player';
@@ -9,6 +16,8 @@ export type Role = 'admin' | 'player';
 export interface AuthSession {
   authenticated: boolean;
   role: Role | null;
+  /** The group a player session is limited to; null for admins and signed-out visitors. */
+  group: Group | null;
 }
 
 export interface Game {
@@ -16,6 +25,8 @@ export interface Game {
   started_at: string;
   finished_at: string | null;
   deleted_at: string | null;
+  group_id: number | null;
+  group_name?: string | null;
   round_count?: number;
   player_names?: string | null;
   /** Everyone tied for the top total in a finished game; empty otherwise. */

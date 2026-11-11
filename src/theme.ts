@@ -6,7 +6,8 @@ export const PLAYER_COLORS = [
   { bg: '#c89800', text: '#ffffff', dim: '#302000', label: 'Yellow' },
 ];
 
-export const surface  = '#1a1a24';
-export const border   = '#2a2a38';
-export const muted    = '#8888aa';
-export const bg       = '#111118';
+// Kept in step with the CSS variables in index.css.
+export const surface  = '#171722';
+export const border   = '#2a2a3a';
+export const muted    = '#8f8fae';
+export const bg       = '#0c0c14';

@@ -88,7 +88,7 @@ export default function FeedbackProvider({ children }: { children: ReactNode }) 
           const style = KIND_STYLE[t.kind];
           return (
             <div key={t.id} role={t.kind === 'error' ? 'alert' : 'status'}
-              className="pointer-events-auto rounded-xl px-4 py-3 text-sm font-bold shadow-lg max-w-md w-full"
+              className="pointer-events-auto rounded-xl px-4 py-3 text-sm font-bold shadow-lg max-w-md w-full anim-slide-down"
               style={{ backgroundColor: style.bg, border: `1px solid ${style.border}`, color: style.text }}>
               {t.message}
             </div>
@@ -101,7 +101,7 @@ export default function FeedbackProvider({ children }: { children: ReactNode }) 
           style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
           onMouseDown={e => { if (e.target === e.currentTarget) settle(false); }}>
           <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="confirm-title"
-            className="w-full max-w-sm rounded-2xl p-5"
+            className="w-full max-w-sm rounded-2xl p-5 anim-pop"
             style={{ backgroundColor: surface, border: `1px solid ${border}` }}>
             <h3 id="confirm-title" className="text-lg font-black uppercase tracking-wide mb-2">{pending.title}</h3>
             {pending.message && <p className="text-sm mb-5" style={{ color: muted }}>{pending.message}</p>}
