@@ -495,3 +495,34 @@ describe('group isolation', () => {
     assert.equal(r.status, 409);
   });
 });
+
+describe('upgrading a database from before groups', () => {
+  it('moves a pre-group game into otjes only when everyone in it is an otjes player', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ligretto-legacy-'));
+    const file = path.join(dir, 'legacy.db');
+    let db = openDatabase(file, ['otjes']);
+    const otjes = db.prepare("SELECT id FROM groups WHERE name = 'otjes'").get() as any;
+    const sam = db.prepare("SELECT id FROM players WHERE name = 'Sam'").get() as any;
+    const amber = db.prepare("SELECT id FROM players WHERE name = 'Amber'").get() as any;
+    // Simulate pre-group data: an outsider, one all-otjes game and one mixed game, with no group set.
+    const oldie = db.prepare("INSERT INTO players (name, group_id) VALUES ('Oldie', NULL)").run();
+    const allOtjes = db.prepare('INSERT INTO games (group_id) VALUES (NULL)').run();
+    const mixed = db.prepare('INSERT INTO games (group_id) VALUES (NULL)').run();
+    const seat = db.prepare('INSERT INTO game_players (game_id, player_id) VALUES (?, ?)');
+    seat.run(allOtjes.lastInsertRowid, sam.id);
+    seat.run(allOtjes.lastInsertRowid, amber.id);
+    seat.run(mixed.lastInsertRowid, sam.id);
+    seat.run(mixed.lastInsertRowid, oldie.lastInsertRowid);
+    db.prepare("DELETE FROM schema_migrations WHERE name = 'assign-legacy-data-to-otjes'").run();
+    db.close();
+
+    db = openDatabase(file, ['otjes']);
+    const groupOf = (id: number | bigint) => (db.prepare('SELECT group_id FROM games WHERE id = ?').get(id) as any).group_id;
+    assert.equal(groupOf(allOtjes.lastInsertRowid), otjes.id, 'all-otjes game joins otjes');
+    assert.equal(groupOf(mixed.lastInsertRowid), null, 'game with an outsider stays ungrouped');
+    const oldieRow = db.prepare("SELECT group_id FROM players WHERE name = 'Oldie'").get() as any;
+    assert.equal(oldieRow.group_id, null, 'outsider is not regrouped');
+    db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});

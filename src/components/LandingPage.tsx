@@ -25,13 +25,15 @@ function ActionCard({ title, description, accent, icon, delay, onClick }: Action
     <button
       type="button"
       onClick={onClick}
-      className="action-card surface card-lift rounded-3xl p-6 text-left w-full anim-fade-up"
+      className="action-card surface card-lift rounded-2xl p-4 text-left w-full flex items-center gap-4 anim-fade-up"
       style={{ '--delay': `${delay}ms`, '--accent': accent } as React.CSSProperties}
     >
-      <span className="action-icon" aria-hidden="true">{icon}</span>
-      <span className="block font-black text-xl mt-5 mb-1">{title}</span>
-      <span className="block text-sm pr-8" style={{ color: muted }}>{description}</span>
-      <span className="action-arrow" aria-hidden="true">→</span>
+      <span className="action-icon flex-shrink-0" aria-hidden="true">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-black text-lg leading-tight">{title}</span>
+        <span className="block text-xs mt-0.5 truncate" style={{ color: muted }}>{description}</span>
+      </span>
+      <span className="action-arrow flex-shrink-0" aria-hidden="true">→</span>
     </button>
   );
 }
@@ -77,22 +79,22 @@ export default function LandingPage({ auth, onNavigate, onLogout }: Props) {
   const isAdmin = auth.role === 'admin';
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-6 pb-16">
-      <div className="flex items-center justify-between mb-10 anim-fade-up">
+    <div className="max-w-xl mx-auto px-4 pt-4 pb-10">
+      <div className="flex items-center justify-between mb-6 anim-fade-up">
         <span className="pill">{isAdmin ? 'Admin' : `Group · ${auth.group?.name ?? 'player'}`}</span>
         <button type="button" onClick={onLogout} className="btn-ghost text-xs">Log out</button>
       </div>
 
-      <div className="flex flex-col items-center text-center mb-10">
-        <CardFan size={56} animate className="mb-6 anim-float" />
+      <div className="flex flex-col items-center text-center mb-6">
+        <CardFan size={40} animate className="mb-4 anim-float" />
         <h1
-          className="font-black text-4xl sm:text-5xl tracking-[.2em] uppercase anim-fade-up"
+          className="font-black text-3xl tracking-[.2em] uppercase anim-fade-up"
           style={{ color: 'var(--red-bright)', '--delay': '120ms' } as React.CSSProperties}
         >
           Ligretto
         </h1>
         <p
-          className="text-xs sm:text-sm tracking-[.35em] uppercase mt-2 anim-fade-up"
+          className="text-[.65rem] tracking-[.35em] uppercase mt-1 anim-fade-up"
           style={{ color: muted, '--delay': '180ms' } as React.CSSProperties}
         >
           Scorekeeper
@@ -100,7 +102,7 @@ export default function LandingPage({ auth, onNavigate, onLogout }: Props) {
       </div>
 
       {inProgress && (
-        <div className="flex justify-center mb-8 anim-fade-up" style={{ '--delay': '240ms' } as React.CSSProperties}>
+        <div className="flex justify-center mb-4 anim-fade-up" style={{ '--delay': '240ms' } as React.CSSProperties}>
           <button
             type="button"
             onClick={() => onNavigate({ kind: 'game', id: inProgress.id, from: 'home' })}
@@ -114,7 +116,7 @@ export default function LandingPage({ auth, onNavigate, onLogout }: Props) {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-3">
         <ActionCard
           delay={260}
           accent="var(--red-bright)"
@@ -142,11 +144,11 @@ export default function LandingPage({ auth, onNavigate, onLogout }: Props) {
       </div>
 
       {isAdmin && (
-        <div className="mt-6 anim-fade-up" style={{ '--delay': '520ms' } as React.CSSProperties}>
+        <div className="mt-3 anim-fade-up" style={{ '--delay': '520ms' } as React.CSSProperties}>
           <button
             type="button"
             onClick={() => onNavigate({ kind: 'players' })}
-            className="surface card-lift rounded-2xl px-5 py-4 w-full flex items-center justify-between gap-4 text-left"
+            className="surface card-lift rounded-2xl px-4 py-3 w-full flex items-center justify-between gap-4 text-left"
           >
             <span className="min-w-0">
               <span className="block font-black">Manage players</span>

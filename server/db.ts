@@ -228,4 +228,22 @@ runOnce(db, 'seed-otjes-players', () => {
   }
 });
 
+// Games from before groups existed move into otjes, but only when everyone who played
+// is an otjes player. Games with anyone else stay ungrouped (visible to the admin only),
+// and players outside the otjes roster are never regrouped automatically.
+runOnce(db, 'assign-legacy-data-to-otjes', () => {
+  const groupId = ensureGroup(db, 'otjes');
+  db.prepare(`
+    UPDATE games SET group_id = @group
+    WHERE group_id IS NULL
+      AND EXISTS (SELECT 1 FROM game_players gp WHERE gp.game_id = games.id)
+      AND NOT EXISTS (
+        SELECT 1 FROM game_players gp
+        JOIN players p ON p.id = gp.player_id
+        WHERE gp.game_id = games.id
+          AND (p.group_id IS NULL OR p.group_id != @group)
+      )
+  `).run({ group: groupId });
+});
+
 }
