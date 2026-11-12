@@ -195,10 +195,8 @@ export default function GamesListPage({ canEdit, onOpenGame }: Props) {
                     <button
                       onClick={() => trashGame(g.id)}
                       aria-label={`Move game ${g.id} to trash`}
-                      className="text-xs font-medium transition-colors whitespace-nowrap"
-                      style={{ color: muted }}
-                      onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                      onMouseLeave={e => (e.currentTarget.style.color = muted)}
+                      className="btn-ghost text-xs whitespace-nowrap"
+                      style={{ color: '#fca5a5' }}
                     >
                       Trash
                     </button>
