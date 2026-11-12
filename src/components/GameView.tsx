@@ -292,7 +292,7 @@ export default function GameView({ gameId, onBack, canEdit, canPlay, backLabel =
               CSV ↓
             </button>
           )}
-          {canAdmin ? (
+          {canScore ? (
             <button onClick={finishGame}
               className="px-4 py-2 rounded-xl text-sm font-black uppercase tracking-wide"
               style={{ backgroundColor: '#15502a', color: '#4ade80', border: '1px solid #1a6634' }}>
