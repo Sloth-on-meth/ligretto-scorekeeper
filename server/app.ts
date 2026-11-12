@@ -631,9 +631,10 @@ export function createApp(db: Database.Database, config: AppConfig) {
     }
   });
 
-  app.patch('/api/games/:id/finish', requireAdmin, (req, res) => {
+  // Any member can finish a game in their own group; admins can finish any game.
+  app.patch('/api/games/:id/finish', requireMember, (req, res) => {
     const gameId = getRouteParam(req.params.id);
-    const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as GameRow | undefined;
+    const game = gameInScope(gameId, sessionFor(res));
     if (!game) return res.status(404).json({ error: 'Game not found' });
     if (game.deleted_at) return res.status(409).json({ error: 'Cannot finish a deleted game' });
 

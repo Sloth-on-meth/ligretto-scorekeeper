@@ -157,7 +157,6 @@ describe('roles and permissions', () => {
       ['DELETE', `/players/${ids.Ann}`, undefined],
       ['PUT', `/games/${gameId}/rounds/${roundId}`, { scores: [{ player_id: ids.Ann, score: 1 }, { player_id: ids.Ben, score: 1 }] }],
       ['DELETE', `/games/${gameId}/rounds/${roundId}`, undefined],
-      ['PATCH', `/games/${gameId}/finish`, undefined],
       ['PATCH', `/games/${gameId}/trash`, undefined],
       ['DELETE', `/games/${gameId}`, undefined],
       ['POST', '/games/import', { player_names: ['a', 'b'], rounds: [], group_id: 1 }],
@@ -524,5 +523,29 @@ describe('upgrading a database from before groups', () => {
     assert.equal(oldieRow.group_id, null, 'outsider is not regrouped');
     db.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('finishing games as a member', () => {
+  it('lets a member finish their own group\'s game but not another group\'s', async () => {
+    const h = await start();
+    const admin = (await login(h.base, ADMIN))!;
+    const otjes = (await login(h.base, PLAYER))!;
+    const other = (await login(h.base, OTHER))!;
+    const roster = (await call(h.base, 'GET', '/players', undefined, admin)).body as { id: number; name: string }[];
+    const ids = roster.filter(p => ['Sam', 'Amber'].includes(p.name)).map(p => p.id);
+    const game = await call(h.base, 'POST', '/games', { player_ids: ids }, otjes);
+    assert.equal(game.status, 201);
+
+    assert.equal((await call(h.base, 'PATCH', `/games/${game.body.id}/finish`, undefined, other)).status, 404);
+    assert.equal((await call(h.base, 'PATCH', `/games/${game.body.id}/finish`, undefined)).status, 401);
+    const done = await call(h.base, 'PATCH', `/games/${game.body.id}/finish`, undefined, otjes);
+    assert.equal(done.status, 200);
+    assert.ok(done.body.finished_at);
+    // Locked afterwards, even for the member who finished it.
+    assert.equal((await call(h.base, 'POST', `/games/${game.body.id}/rounds`, {
+      scores: ids.map(id => ({ player_id: id, score: 0 })),
+    }, otjes)).status, 409);
+    await h.close();
   });
 });
