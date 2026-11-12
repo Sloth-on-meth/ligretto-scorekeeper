@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useFeedback } from '../feedback';
 import type { Game, Group, Player } from '../types';
-import { PLAYER_COLORS, muted } from '../theme';
+import { muted } from '../theme';
 import { parseImportedGame } from '../lib/importParser';
 
 interface Props {
@@ -166,7 +166,6 @@ export default function NewGamePage({ canEdit, onOpenGame }: Props) {
             <>
               <div className="flex flex-wrap gap-2 mb-6" role="group" aria-label="Players in this game">
                 {visiblePlayers.map((p, i) => {
-                  const c = PLAYER_COLORS[i % PLAYER_COLORS.length];
                   const sel = selected.includes(p.id);
                   return (
                     <button
@@ -174,19 +173,14 @@ export default function NewGamePage({ canEdit, onOpenGame }: Props) {
                       type="button"
                       onClick={() => togglePlayer(p.id)}
                       aria-pressed={sel}
-                      className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all anim-fade-up"
+                      className="px-4 py-2.5 rounded-xl text-sm font-bold transition-all anim-fade-up"
                       style={{
                         ...(sel
-                          ? { backgroundColor: c.bg, color: c.text, border: `1px solid ${c.bg}`, boxShadow: `0 6px 18px ${c.bg}66` }
-                          : { backgroundColor: 'var(--bg-2)', color: muted, border: '1px solid var(--border)' }),
+                          ? { backgroundColor: 'var(--red)', color: '#fff', border: '1px solid var(--red-bright)', boxShadow: '0 6px 18px rgba(224,32,32,.35)' }
+                          : { backgroundColor: 'var(--bg-2)', color: '#fff', border: '1px solid var(--border)' }),
                         ...({ '--delay': `${Math.min(i, 12) * 30}ms` } as React.CSSProperties),
                       }}
                     >
-                      <span className="rounded font-black text-xs flex items-center justify-center"
-                        style={{ width: 18, height: 22, backgroundColor: sel ? 'rgba(0,0,0,0.25)' : c.bg, color: '#fff', fontSize: '0.6rem' }}
-                        aria-hidden="true">
-                        {i + 1}
-                      </span>
                       {p.name}
                     </button>
                   );

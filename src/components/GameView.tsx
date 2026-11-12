@@ -243,6 +243,23 @@ export default function GameView({ gameId, onBack, canEdit, canPlay, backLabel =
     }
   };
 
+  const trashGame = async () => {
+    const ok = await confirm({
+      title: `Move game #${gameId} to the trash?`,
+      message: 'You can restore it later from Previous games. Trashed games are excluded from stats.',
+      confirmLabel: 'Move to trash',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.games.trashOne(gameId);
+      toast(`Game #${gameId} moved to trash`);
+      onBack();
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
   const finishGame = async () => {
     const ok = await confirm({
       title: 'Finish this game?',
@@ -309,6 +326,16 @@ export default function GameView({ gameId, onBack, canEdit, canPlay, backLabel =
               Read-only
             </span>
           ) : null}
+          {canEdit && !game.deleted_at && (
+            <button
+              onClick={trashGame}
+              aria-label={`Move game ${gameId} to trash`}
+              className="btn-ghost text-xs"
+              style={{ color: '#fca5a5' }}
+            >
+              Trash
+            </button>
+          )}
         </div>
       </div>
 
