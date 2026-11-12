@@ -126,7 +126,7 @@ export default function NewGamePage({ canEdit, onOpenGame }: Props) {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4">
         <div className="surface rounded-3xl p-5 sm:p-6">
           <div className="flex items-center justify-between gap-3 mb-4">
             <p className="text-xs font-black uppercase tracking-widest" style={{ color: muted }}>Who's playing?</p>
@@ -164,12 +164,10 @@ export default function NewGamePage({ canEdit, onOpenGame }: Props) {
             </p>
           ) : (
             <>
-              <p className="text-xs mb-3" style={{ color: muted }}>Tap players in seating order.</p>
               <div className="flex flex-wrap gap-2 mb-6" role="group" aria-label="Players in this game">
                 {visiblePlayers.map((p, i) => {
                   const c = PLAYER_COLORS[i % PLAYER_COLORS.length];
-                  const seat = selected.indexOf(p.id);
-                  const sel = seat !== -1;
+                  const sel = selected.includes(p.id);
                   return (
                     <button
                       key={p.id}
@@ -179,7 +177,7 @@ export default function NewGamePage({ canEdit, onOpenGame }: Props) {
                       className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all anim-fade-up"
                       style={{
                         ...(sel
-                          ? { backgroundColor: c.bg, color: c.text, boxShadow: `0 6px 18px ${c.bg}66`, transform: 'translateY(-1px)' }
+                          ? { backgroundColor: c.bg, color: c.text, border: `1px solid ${c.bg}`, boxShadow: `0 6px 18px ${c.bg}66` }
                           : { backgroundColor: 'var(--bg-2)', color: muted, border: '1px solid var(--border)' }),
                         ...({ '--delay': `${Math.min(i, 12) * 30}ms` } as React.CSSProperties),
                       }}
@@ -187,7 +185,7 @@ export default function NewGamePage({ canEdit, onOpenGame }: Props) {
                       <span className="rounded font-black text-xs flex items-center justify-center"
                         style={{ width: 18, height: 22, backgroundColor: sel ? 'rgba(0,0,0,0.25)' : c.bg, color: '#fff', fontSize: '0.6rem' }}
                         aria-hidden="true">
-                        {sel ? seat + 1 : i + 1}
+                        {i + 1}
                       </span>
                       {p.name}
                     </button>

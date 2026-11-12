@@ -111,7 +111,7 @@ export default function App() {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-10" style={{ backgroundColor: 'rgba(12,12,20,0.82)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)' }}>
-        <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-2 flex items-center gap-3">
+        <div className="max-w-xl mx-auto px-4 py-2 flex items-center gap-3">
           <button
             type="button"
             onClick={() => navigate(HOME)}
@@ -130,7 +130,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-5 sm:py-8">
+      <main className="max-w-xl mx-auto px-4 py-5">
         {view.kind !== 'game' && (
           <button
             type="button"
