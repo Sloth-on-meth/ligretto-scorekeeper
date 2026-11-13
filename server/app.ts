@@ -695,6 +695,40 @@ export function createApp(db: Database.Database, config: AppConfig) {
     res.json({ game, players, rounds });
   });
 
+  // --- players joining mid-game ---
+
+  // Any member can add a player from the game's own group while the game is unfinished.
+  // The newcomer has no score for earlier rounds and must be scored from the next round on.
+  app.post('/api/games/:id/players', requireMember, (req, res) => {
+    const gameId = getRouteParam(req.params.id);
+    const game = gameInScope(gameId, sessionFor(res));
+    if (!game) return res.status(404).json({ error: 'Game not found' });
+    if (game.deleted_at) return res.status(409).json({ error: 'Cannot edit a deleted game' });
+    if (game.finished_at) return res.status(409).json({ error: 'Cannot add players to a finished game' });
+
+    const playerId = Number(req.body?.player_id);
+    if (!Number.isInteger(playerId) || playerId <= 0) {
+      return res.status(400).json({ error: 'Choose a player to add' });
+    }
+    const player = db.prepare('SELECT id, name, group_id FROM players WHERE id = ?').get(playerId) as
+      | { id: number; name: string; group_id: number | null }
+      | undefined;
+    if (!player || player.group_id !== game.group_id) {
+      return res.status(400).json({ error: 'That player is not in this game’s group' });
+    }
+    if (db.prepare('SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?').get(gameId, playerId)) {
+      return res.status(409).json({ error: `${player.name} is already in this game` });
+    }
+
+    db.prepare('INSERT INTO game_players (game_id, player_id) VALUES (?, ?)').run(gameId, playerId);
+    res.status(201).json(db.prepare(`
+      SELECT p.* FROM players p
+      JOIN game_players gp ON gp.player_id = p.id
+      WHERE gp.game_id = ?
+      ORDER BY p.name
+    `).all(gameId));
+  });
+
   // --- rounds ---
 
   app.post('/api/games/:id/rounds', requireMember, (req, res) => {

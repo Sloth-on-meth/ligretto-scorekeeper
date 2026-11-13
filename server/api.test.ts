@@ -549,3 +549,47 @@ describe('finishing games as a member', () => {
     await h.close();
   });
 });
+
+describe('adding players mid-game', () => {
+  it('lets a member add a group player to an unfinished game, then requires their score', async () => {
+    const h = await start();
+    const admin = (await login(h.base, ADMIN))!;
+    const otjes = (await login(h.base, PLAYER))!;
+    const other = (await login(h.base, OTHER))!;
+    const roster = (await call(h.base, 'GET', '/players', undefined, admin)).body as { id: number; name: string }[];
+    const id = Object.fromEntries(roster.map(p => [p.name, p.id])) as Record<string, number>;
+    const zoe = (await seedPlayers(h.base, admin, ['Zoe'], 'other')).Zoe;
+
+    const game = await call(h.base, 'POST', '/games', { player_ids: [id.Sam, id.Amber] }, otjes);
+    assert.equal(game.status, 201);
+    const gid = game.body.id;
+    assert.equal((await call(h.base, 'POST', `/games/${gid}/rounds`, {
+      scores: [{ player_id: id.Sam, score: 3 }, { player_id: id.Amber, score: 1 }],
+    }, otjes)).status, 201);
+
+    assert.equal((await call(h.base, 'POST', `/games/${gid}/players`, { player_id: zoe }, otjes)).status, 400, 'other group player');
+    assert.equal((await call(h.base, 'POST', `/games/${gid}/players`, { player_id: id.Colin })).status, 401, 'anonymous');
+    assert.equal((await call(h.base, 'POST', `/games/${gid}/players`, { player_id: id.Colin }, other)).status, 404, 'other group game');
+
+    const added = await call(h.base, 'POST', `/games/${gid}/players`, { player_id: id.Colin }, otjes);
+    assert.equal(added.status, 201);
+    assert.equal(added.body.length, 3);
+    assert.equal((await call(h.base, 'POST', `/games/${gid}/players`, { player_id: id.Colin }, otjes)).status, 409, 'duplicate');
+
+    // From now on every round must include Colin.
+    assert.equal((await call(h.base, 'POST', `/games/${gid}/rounds`, {
+      scores: [{ player_id: id.Sam, score: 0 }, { player_id: id.Amber, score: 0 }],
+    }, otjes)).status, 400);
+    assert.equal((await call(h.base, 'POST', `/games/${gid}/rounds`, {
+      scores: [{ player_id: id.Sam, score: 0 }, { player_id: id.Amber, score: 0 }, { player_id: id.Colin, score: 4 }],
+    }, otjes)).status, 201);
+
+    const detail = await call(h.base, 'GET', `/games/${gid}`, undefined, otjes);
+    assert.equal(detail.body.rounds.filter((r: any) => r.round_number === 1).length, 2, 'Colin has no round-1 score');
+    assert.equal(detail.body.rounds.filter((r: any) => r.round_number === 2).length, 3);
+
+    assert.equal((await call(h.base, 'PATCH', `/games/${gid}/finish`, undefined, otjes)).status, 200);
+    assert.equal((await call(h.base, 'POST', `/games/${gid}/players`, { player_id: id.Jodi }, otjes)).status, 409, 'finished');
+    await h.close();
+  });
+});
