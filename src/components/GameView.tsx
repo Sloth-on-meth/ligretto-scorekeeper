@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useFeedback } from '../feedback';
-import type { GameDetail, RoundScore } from '../types';
+import type { GameDetail, Player, RoundScore } from '../types';
 import { PLAYER_COLORS, surface, border, muted } from '../theme';
 import { sanitizeScore, toggleSign, parseScore } from '../lib/score';
 import { formatDateTime } from '../lib/dates';
@@ -73,6 +73,9 @@ export default function GameView({ gameId, onBack, canEdit, canPlay, backLabel =
   const [editingRound, setEditingRound] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [justSavedRound, setJustSavedRound] = useState<number | null>(null);
+  const [addingPlayer, setAddingPlayer] = useState(false);
+  const [candidates, setCandidates] = useState<Player[] | null>(null);
+  const [candidatesError, setCandidatesError] = useState('');
   const [error, setError] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -237,6 +240,32 @@ export default function GameView({ gameId, onBack, canEdit, canPlay, backLabel =
     try {
       await api.rounds.delete(gameId, roundIdMap[roundNumber]);
       toast(`Round ${roundNumber} deleted`);
+      load();
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const openAddPlayer = async () => {
+    setAddingPlayer(true);
+    setCandidates(null);
+    setCandidatesError('');
+    try {
+      const all = await api.players.list();
+      // Admins see every group; only this game's own group may join.
+      setCandidates(all.filter(p => p.group_id === game.group_id && !players.some(gp => gp.id === p.id)));
+    } catch (err) {
+      setCandidatesError((err as Error).message);
+    }
+  };
+
+  const addPlayer = async (player: Player) => {
+    try {
+      await api.games.addPlayer(gameId, player.id);
+      toast(`${player.name} joined the game`, 'success');
+      setAddingPlayer(false);
+      setCandidates(null);
+      // Keep anything already typed; the newcomer simply gets an empty score field.
       load();
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -459,6 +488,54 @@ export default function GameView({ gameId, onBack, canEdit, canPlay, backLabel =
             <p className="text-xs px-4 py-2" style={{ color: muted, borderTop: `1px solid ${border}` }}>
               {leaderNames} leads by {(totals[sortedPlayers[0].id] ?? 0) - (totals[sortedPlayers[1].id] ?? 0)}
             </p>
+          )}
+        </div>
+      )}
+
+      {canScore && (
+        <div className="mb-6">
+          {!addingPlayer ? (
+            <button type="button" onClick={openAddPlayer} className="btn-ghost text-xs">
+              + Add player
+            </button>
+          ) : (
+            <div className="surface rounded-2xl p-4 anim-fade-up">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <p className="text-xs font-black uppercase tracking-widest" style={{ color: muted }}>Who's joining?</p>
+                <button
+                  type="button"
+                  onClick={() => { setAddingPlayer(false); setCandidates(null); }}
+                  className="text-xs font-bold underline underline-offset-4"
+                  style={{ color: muted }}
+                >
+                  Cancel
+                </button>
+              </div>
+              {candidatesError ? (
+                <p className="text-sm" role="alert" style={{ color: '#f87171' }}>{candidatesError}</p>
+              ) : candidates === null ? (
+                <p className="text-sm" style={{ color: muted }}>Loading…</p>
+              ) : candidates.length === 0 ? (
+                <p className="text-sm" style={{ color: muted }}>Everyone in the group is already playing.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Players who can join">
+                  {candidates.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => addPlayer(p)}
+                      className="px-4 py-2.5 rounded-xl text-sm font-bold"
+                      style={{ backgroundColor: 'var(--bg-2)', color: '#fff', border: '1px solid var(--border)' }}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs mt-3" style={{ color: muted }}>
+                A player who joins now has no score for earlier rounds and is counted from the next round on.
+              </p>
+            </div>
           )}
         </div>
       )}

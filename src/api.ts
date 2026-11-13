@@ -76,6 +76,8 @@ export const api = {
     finish: (id: number) => req<Game>(`/games/${id}/finish`, { method: 'PATCH' }),
     trashOne: (id: number) => req<Game>(`/games/${id}/trash`, { method: 'PATCH' }),
     restore: (id: number) => req<Game>(`/games/${id}/restore`, { method: 'PATCH' }),
+    addPlayer: (id: number, player_id: number) =>
+      req<Player[]>(`/games/${id}/players`, { method: 'POST', body: JSON.stringify({ player_id }) }),
     delete: (id: number) => req<void>(`/games/${id}`, { method: 'DELETE' }),
   },
   rounds: {
